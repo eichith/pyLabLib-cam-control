@@ -1,5 +1,5 @@
 from pylablib.core.thread import controller
-from pylablib.core.dataproc import transform
+from pylablib.core.dataproc import ctransform
 from pylablib.core.gui.widgets import container
 from pylablib.thread.stream.stream_message import FramesMessage
 
@@ -287,7 +287,7 @@ class GenericCameraCtl(container.QContainer):
         self.c["plotter_area"].set_image(frame)
         if self.c["plotter_area"].update_expected():
             roi=tuple(msg.mi.roi)+(1,1)
-            trans=transform.Indexed2DTransform().multiplied([[0,roi[4]],[roi[5],0]]).shifted([roi[0],roi[2]])
+            trans=ctransform.CLinear2DTransform().transpose().scale(roi[4],roi[5]).shift(roi[0],roi[2])
             self.c["plotter_area"].set_coordinate_system("frame",trans=trans)
             if self.c["plotter_area"].update_image():
                 self.image_updated.emit()

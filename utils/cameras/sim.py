@@ -44,7 +44,7 @@ class SimulatedCamera(camera.IROICamera, camera.IExposureCamera):
         return TDeviceInfo("simulated_basic",)
     
     ### Generic controls ###
-    _min_exposure=1E-3
+    _min_exposure=1E-4
     def get_frame_timings(self):
         return self._TAcqTimings(self._exposure,self._exposure)
     @camera.acqstopped
