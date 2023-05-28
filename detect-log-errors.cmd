@@ -1,0 +1,1 @@
+..\python\python.exe detect.py --show-errors --nosave

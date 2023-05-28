@@ -22,6 +22,7 @@ if __name__=="__main__":
     parser=argparse.ArgumentParser(description="Camera autodetection")
     parser.add_argument("--silent","-s",help="silent execution",action="store_true")
     parser.add_argument("--yes","-y",help="automatically confirm settings file overwrite",action="store_true")
+    parser.add_argument("--nosave","-n",help="skip saving detected cameras to the settings file (only used for diagnostics)",action="store_true")
     parser.add_argument("--show-errors",help="show errors raised on camera detection",action="store_true")
     parser.add_argument("--wait",help="show waiting message for 3 seconds in the end",action="store_true")
     parser.add_argument("--config-file","-cf", help="configuration file path",metavar="FILE",default="settings.cfg")
@@ -41,16 +42,19 @@ import datetime
 from utils.cameras import camera_descriptors
 
 ### Redirecting console / errors to file logs ###
-log_lock=threading.Lock()
+log_lock=threading.RLock()
 class StreamLogger(general_utils.StreamFileLogger):
     def __init__(self, path, stream=None):
-        general_utils.StreamFileLogger.__init__(self,path,stream=stream,lock=log_lock)
+        super().__init__(path,stream=stream,lock=log_lock)
         self.start_time=datetime.datetime.now()
     def write_header(self, f):
         f.write("\n\n"+"-"*50)
         f.write("\nStarting {} {:on %Y/%m/%d at %H:%M:%S}\n\n".format(os.path.split(sys.argv[0])[1],self.start_time))
 sys.stderr=StreamLogger("logerr.txt",sys.stderr)
 sys.stdout=StreamLogger("logout.txt",sys.stdout)
+detect_logger=StreamLogger("logdetect.txt")
+sys.stderr.add_stream(detect_logger)
+sys.stdout.add_stream(detect_logger)
 
 
 def detect_all(verbose=False):
@@ -65,12 +69,11 @@ def detect_all(verbose=False):
     return dictionary.Dictionary({"cameras":cams})
 
 
-def update_settings_file(cfg_path="settings.cfg", verbose=False, confirm=False, wait=False):
+def update_settings_file(cfg_path="settings.cfg", verbose=False, do_save=True, confirm=False, wait=False):
     settings=detect_all(verbose=verbose)
     if not settings:
         if verbose: print("Couldn't detect any supported cameras")
-    else:
-        do_save=True
+    elif do_save:
         if os.path.exists(cfg_path):
             ans=input("Configuration file already exists. Modify? [y/N] ").strip() if confirm else "y"
             if ans.lower()!="y":
@@ -86,6 +89,9 @@ def update_settings_file(cfg_path="settings.cfg", verbose=False, confirm=False, 
             if verbose: print("Successfully generated config file {}".format(cfg_path))
         else:
             return
+    else:
+        if verbose: print("Skipping updating the config file")
+        return
     if confirm and not do_save:
         input()
     elif wait:
@@ -101,4 +107,4 @@ if __name__=="__main__":
         verbose=False
     else:
         verbose="full" if args.show_errors else True
-    update_settings_file(cfg_path=args.config_file,verbose=verbose,confirm=not (args.silent or args.yes),wait=args.wait)
+    update_settings_file(cfg_path=args.config_file,verbose=verbose,confirm=not (args.silent or args.yes),wait=args.wait,do_save=not args.nosave)

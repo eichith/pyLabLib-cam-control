@@ -62,10 +62,10 @@ import splash
 
 
 ### Redirecting console / errors to file logs ###
-log_lock=threading.Lock()
+log_lock=threading.RLock()
 class StreamLogger(general_utils.StreamFileLogger):
     def __init__(self, path, stream=None):
-        general_utils.StreamFileLogger.__init__(self,path,stream=stream,lock=log_lock)
+        super().__init__(path,stream=stream,lock=log_lock)
         self.start_time=datetime.datetime.now()
     def write_header(self, f):
         f.write("\n\n"+"-"*50)

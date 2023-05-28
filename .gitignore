@@ -1,5 +1,4 @@
-logerr.txt
-logout.txt
+log*.txt
 defaults*.cfg
 locals*.cfg
 settings-*.cfg
