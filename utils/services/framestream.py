@@ -245,6 +245,13 @@ class ChannelAccumulator(controller.QTaskThread):
 
 ########## Frame saving ##########
 
+class SaveFileMessage:
+    """Message emitted upon a new file being created or finished"""
+    def __init__(self, evt, path):
+        self.evt=evt
+        self.path=path
+
+
 class PretriggerBuffer:
     """
     Pretrigger buffer.
@@ -405,6 +412,7 @@ class FrameSaveThread(controller.QTaskThread):
         self._last_frame=None
         self._last_chunk_start=0
         self._tiff_writer=None
+        self._last_notified_path=None
         self.v["max_queue_ram"]=2**30*4
         self._update_queue_ram(0)
         self.v["status_line_check"]="off"
@@ -525,6 +533,8 @@ class FrameSaveThread(controller.QTaskThread):
             self.finalize_settings()
         except OSError as err:
             self.signal_error("write_os_error",desc=str(err))
+        finally:
+            self._update_file_save()
 
     def signal_error(self, kind=None, desc=None):
         """Signal whether an error occurred (``kind is None`` means not error)"""
@@ -694,6 +704,13 @@ class FrameSaveThread(controller.QTaskThread):
                 return res
         return "ok"
 
+    def _update_file_save(self, path=None):
+        if self._last_notified_path!=path:
+            if self._last_notified_path is not None:
+                self.send_multicast(tag="saving/file",value=SaveFileMessage("done",self._last_notified_path))
+            if path is not None:
+                self.send_multicast(tag="saving/file",value=SaveFileMessage("start",path))
+            self._last_notified_path=path
     def _write_tiff(self, frames):
         try:
             self._tiff_writer._meta["contiguous"]=False # force to flush after write to check the file size
@@ -714,12 +731,16 @@ class FrameSaveThread(controller.QTaskThread):
         self._last_frame=frames[-1][-1,:].copy()
         if self.format=="cam":
             if self.filesplit is None:
-                cam.save_cam(frames,self._make_path(),append=append)
+                path=self._make_path()
+                self._update_file_save(path)
+                cam.save_cam(frames,path,append=append)
             else: # file splitting mechanics
                 while frames:
                     lchunk=(-nsaved-1)%self.filesplit+1
                     chunk,frames=frames[:lchunk],frames[lchunk:]
-                    cam.save_cam(chunk,self._make_path(idx=self._file_idx),append=append)
+                    path=self._make_path(idx=self._file_idx)
+                    self._update_file_save(path)
+                    cam.save_cam(chunk,path,append=append)
                     nsaved+=len(chunk)
                     if nsaved%self.filesplit==0:
                         self._file_idx+=1
@@ -734,7 +755,9 @@ class FrameSaveThread(controller.QTaskThread):
             self._last_frame=frames[-1][-1,:].astype(save_dtype).copy()
             mode="ab" if append else "wb"
             if self.filesplit is None:
-                with open(self._make_path(),mode) as f:
+                path=self._make_path()
+                self._update_file_save(path)
+                with open(path,mode) as f:
                     for frm in frames:
                         np.asarray(frm,save_dtype).tofile(f)
             else: # file splitting mechanics
@@ -746,8 +769,10 @@ class FrameSaveThread(controller.QTaskThread):
                         while frm_saved<frm_size:
                             lchunk=(-nsaved-1)%self.filesplit+1
                             frm_to_save=min(lchunk,frm_size-frm_saved)
+                            path=self._make_path(idx=self._file_idx)
+                            self._update_file_save(path)
                             if f is None:
-                                f=open(self._make_path(idx=self._file_idx),mode)
+                                f=open(path,mode)
                             np.asarray(frm[frm_saved:frm_saved+frm_to_save],save_dtype).tofile(f)
                             frm_saved+=frm_to_save
                             nsaved+=frm_to_save
@@ -762,8 +787,10 @@ class FrameSaveThread(controller.QTaskThread):
         elif self.format in ["tiff","bigtiff"]:
             frames=[f.astype("float32") if f.dtype=="float64" else f for f in frames]
             if self.filesplit is None:
+                path=self._make_path()
+                self._update_file_save(path)
                 if self._tiff_writer is None:
-                    self._tiff_writer=imageio.get_writer(self._make_path(),format="tiff",bigtiff=self.format=="bigtiff",mode="V")
+                    self._tiff_writer=imageio.get_writer(path,format="tiff",bigtiff=self.format=="bigtiff",mode="V")
                 for f in frames:
                     try:
                         self._write_tiff(f)
@@ -777,8 +804,10 @@ class FrameSaveThread(controller.QTaskThread):
                     while frm_saved<frm_size:
                         lchunk=(-nsaved-1)%self.filesplit+1
                         frm_to_save=min(lchunk,frm_size-frm_saved)
+                        path=self._make_path(idx=self._file_idx)
+                        self._update_file_save(path)
                         if self._tiff_writer is None:
-                            self._tiff_writer=imageio.get_writer(self._make_path(idx=self._file_idx),format="tiff",bigtiff=self.format=="bigtiff",mode="V")
+                            self._tiff_writer=imageio.get_writer(path,format="tiff",bigtiff=self.format=="bigtiff",mode="V")
                         try:
                             self._write_tiff(frm[frm_saved:frm_saved+frm_to_save])
                             frm_saved+=frm_to_save
