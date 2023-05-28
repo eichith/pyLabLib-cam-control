@@ -67,7 +67,7 @@ class ServerCommThread(controller.QTaskThread):
         full_key="{}/{}".format(branch,key) if branch else key
         branch=" '{}'".format(branch) if branch else ""
         if not dictionary.is_dictionary(msg,generic=True):
-            raise IncomingMessageError("wrong_type",desc="Message value{} is not a dictionary".format(branch),args={"branch":branch})
+            raise IncomingMessageError("wrong_type",desc="Message value {} is not a dictionary".format(branch),args={"branch":branch.strip()})
         if key not in msg:
             raise IncomingMessageError("missing_argument",desc=desc or "Missing value '{}'".format(full_key),args={"key":full_key,})
         value=msg[key]

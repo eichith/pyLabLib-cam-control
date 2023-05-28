@@ -486,7 +486,7 @@ class FrameSaveThread(controller.QTaskThread):
                     self._first_frame_sid=new_chunk[0].sid
                 chunk_size=sum([msg.nbytes() for msg in new_chunk])
                 self._update_queue_ram(self.v["queue_ram"]-chunk_size)
-                flat_chunk=[f for m in new_chunk for f in m.frames]
+                flat_chunk=[(f[None] if f.ndim==2+m.mi.chandim else f) for m in new_chunk for f in m.frames]
                 if self._perform_status_check:
                     if self.v["status_line_check"] in {"ok","na"} and "status_line" in new_chunk[0].metainfo:
                         self.v["status_line_check"]=self._check_status_line(flat_chunk,status_line=new_chunk[0].metainfo["status_line"],step=new_chunk[0].metainfo["step"])

@@ -275,7 +275,7 @@ class GenericCameraCtl(container.QContainer):
     # Frame message receiver
     image_updated=Signal()
     def receive_frame(self, src, tag, msg):
-        """Receive frame mutlicast from the camera and show the frame in the view window"""
+        """Receive frame multicast from the camera and show the frame in the view window"""
         if "plotter_area" not in self.c:
             return
         frame=msg.last_frame()
