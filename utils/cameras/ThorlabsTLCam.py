@@ -10,6 +10,7 @@ from ..gui.base_cam_ctl_gui import GenericCameraSettings_GUI, GenericCameraStatu
 
 class Settings_GUI(GenericCameraSettings_GUI):
     _bin_kind="both"
+    _frame_period_kind="value"
 
 
 
