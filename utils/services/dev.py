@@ -1,4 +1,7 @@
 from pylablib.core.gui import utils as gui_utils, QtCore
+from pylablib.core.thread import controller
+from pylablib.core.fileio import savefile
+import datetime
 
 import os
 
@@ -71,3 +74,15 @@ def on_key_press(src, event):
     """Execute dev functions based on the pressed keys"""
     if event.modifiers()&QtCore.Qt.ControlModifier and event.modifiers()&QtCore.Qt.ShiftModifier and event.key()==QtCore.Qt.Key_S:
         take_screenshots(src)
+    if event.modifiers()&QtCore.Qt.ControlModifier and event.modifiers()&QtCore.Qt.ShiftModifier and event.key()==QtCore.Qt.Key_E:
+        controller._debug_mode=True
+        raise RuntimeError
+    if event.modifiers()&QtCore.Qt.ControlModifier and event.modifiers()&QtCore.Qt.ShiftModifier and event.key()==QtCore.Qt.Key_D:
+        cam=controller.sync_controller("camera")
+        fi=cam.cs.get_full_info("all")
+        with open("cam_info.dat","a") as f:
+            f.write("Camera settings on {:on %Y/%m/%d at %H:%M:%S}\n\n".format(datetime.datetime.now()))
+            savefile.save_dict(fi,f)
+            f.write("\n"*4)
+        controller._debug_mode=True
+        raise RuntimeError

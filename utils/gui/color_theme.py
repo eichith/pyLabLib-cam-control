@@ -18,7 +18,10 @@ def load_style(style="light"):
     accent_color="#406482" if style=="dark" else "#94c1e0"
     accent_hover_color="#254f73" if style=="dark" else "#5a96bf"
     checked_style="\n\nQPushButton:checked {{background-color: {};}}\n\nQPushButton:checked:hover {{background-color: {};}}".format(accent_color,accent_hover_color)
-    stylesheet=qdarkstyle.load_stylesheet(pyside=is_pyside2,palette=palette)
+    try:
+        stylesheet=qdarkstyle.load_stylesheet(qt_api="pyside2" if is_pyside2 else "pyqt5",palette=palette)
+    except AttributeError:
+        stylesheet=qdarkstyle.load_stylesheet(pyside=is_pyside2,palette=palette)
     m=re.search(r"QPushButton:checked\s*{[^}]*}",stylesheet,flags=re.DOTALL)
     end=m.span()[1]
     stylesheet=stylesheet[:end]+checked_style+stylesheet[end:]

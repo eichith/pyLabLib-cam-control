@@ -70,6 +70,7 @@ class StreamLogger(general_utils.StreamFileLogger):
     def write_header(self, f):
         f.write("\n\n"+"-"*50)
         f.write("\nStarting {} {:on %Y/%m/%d at %H:%M:%S}\n\n".format(os.path.split(sys.argv[0])[1],self.start_time))
+        f.write("\nFirst message {:on %Y/%m/%d at %H:%M:%S}\n\n".format(datetime.datetime.now()))
 sys.stderr=StreamLogger("logerr.txt",sys.stderr)
 sys.stdout=StreamLogger("logout.txt",sys.stdout)
 
