@@ -69,6 +69,38 @@ class MessageLogWindow(container.QWidgetContainer):
         del values["recorded_events"]
         return values
 
+
+
+class FormatParametersWindow(container.QWidgetContainer):
+    def setup(self):
+        super().setup()
+        self.setWindowTitle("Format parameters")
+        self.setWindowFlag(QtCore.Qt.Dialog)
+        self.setWindowFlag(QtCore.Qt.WindowMaximizeButtonHint,False)
+        self.setWindowFlag(QtCore.Qt.WindowMinimizeButtonHint,False)
+        self.raw_params=self.add_group_box("raw_params","Raw binary").add_child("params",param_table.ParamTable(self),gui_values_path="raw")
+        self.raw_params.setup(add_indicator=False)
+        self.raw_params.add_check_box("override_dtype",caption="Override data type")
+        raw_dtypes={"u1":"8-bit unsigned","i1":"8-bit signed",
+                        "uint12":"12-bit unsigned",
+                        "<u2":"16-bit unsigned","<i2":"16-bit signed",
+                        "<u4":"32-bit unsigned","<i4":"32-bit signed",
+                        "<f4":"32-but float","<f8":"64-bit float"}
+        self.raw_params.add_combo_box("dtype",options=raw_dtypes)
+        self.raw_params.vs["override_dtype"].connect(lambda v: self.raw_params.set_enabled("dtype",v))
+        self.update_value("raw/override_dtype")
+        self.setFixedSize(300,100)
+        self.add_padding(stretch=1)
+        self.add_property_element("window/size",
+            lambda: (self.size().width(),self.size().height()), lambda v: self.resize(*v), add_indicator=False)
+    def collect_parameters(self, fmt):
+        params={}
+        if fmt=="raw":
+            if self.v["raw/override_dtype"]:
+                params["dtype"]=self.v["raw/dtype"]
+        return params
+
+
 ##### Saving parameter tables #####
 
 _error_description={
@@ -119,6 +151,15 @@ class SaveBox_GUI(container.QGroupBoxContainer):
                 options=["Overwrite","Append","Rename"],index_values=["overwrite","append","rename"],value="rename")
         self.params.add_spacer(6)
         self.params.add_combo_box("format",label="Format",options=["Raw binary","TIFF","Big TIFF"],index_values=["raw","tiff","bigtiff"])
+        self.format_parameters_window=FormatParametersWindow(self)
+        self.format_parameters_window.setup()
+        self.params.add_button("show_format_params","Setup...",location=(-1,2,1,1))
+        @controller.exsafe
+        def show_format_parameters():
+            self.format_parameters_window.move(gui_utils.get_top_parent(self).rect().center()-self.format_parameters_window.rect().center())
+            self.format_parameters_window.show()
+        self.params.add_child("format_parameters",self.format_parameters_window,gui_values_path="format_parameters",location="skip")
+        self.params.vs["show_format_params"].connect(show_format_parameters)
         self.params.add_num_edit("batch_size",1,label="Frames",formatter="int",limiter=(1,None,"coerce","int"),)
         self.params.add_toggle_button("limit_frames","Limit",location=(-1,2,1,1))
         self.params.vs["limit_frames"].connect(lambda v: self.params.set_enabled("batch_size",v))
@@ -240,6 +281,8 @@ class SaveBox_GUI(container.QGroupBoxContainer):
         params={}
         params["batch_size"]=self.v["batch_size"] if self.v["limit_frames"] else None
         params["format"]=self.v["snap_format" if mode=="snap" else "format"]
+        if mode=="full":
+            params["format_parameters"]=self.format_parameters_window.collect_parameters(params["format"])
         if resolve_path:
             use_snap_parameters=(mode=="snap" and not self.v["default_snap_path"])
             add_datetime=self.v["snap_add_datetime" if use_snap_parameters else "add_datetime"]

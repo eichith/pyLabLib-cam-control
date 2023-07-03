@@ -130,7 +130,7 @@ class GenericCameraCtl(container.QContainer):
                     if "settings" in self.c:
                         perform_status_check=self.c["settings"].collect_parameters().get("perform_status_check",False)
                     self.saver.csi.save_start(params["path"],path_kind=params["path_kind"],batch_size=params["batch_size"],
-                        append=params["append"],format=params["format"],filesplit=params["filesplit"],
+                        append=params["append"],format=params["format"],format_parameters=params.get("format_parameters"),filesplit=params["filesplit"],
                         save_settings=params["save_settings"],perform_status_check=perform_status_check)
                 else:
                     self.saver.ca.save_stop()

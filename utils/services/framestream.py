@@ -12,6 +12,7 @@ import collections
 import numpy as np
 import imageio
 import os
+import numba as nb
 
 
 
@@ -252,6 +253,43 @@ class SaveFileMessage:
         self.path=path
 
 
+
+nb_uint16_ro2=nb.typeof(np.frombuffer(b"\x00\x00",dtype="u2").reshape((1,1))) # for readonly attribute of a numpy array
+@nb.njit(nb.uint8[:,:](nb_uint16_ro2),parallel=False,nogil=True)
+def u16to12nb2d(barr):
+    h,s=barr.shape
+    width=(s//2)*3+(s%2)*2
+    out=np.empty((h,width),dtype=nb.uint8)
+    chwidth=width//3
+    for i in range(h):
+        for j in range(chwidth):
+            out[i,j*3]=barr[i,j*2]&0xFF
+            out[i,j*3+1]=((barr[i,j*2]>>8)&0x0F)|((barr[i,j*2+1]&0x0F)<<4)
+            out[i,j*3+2]=(barr[i,j*2+1]>>4)&0xFF
+        if width%2==1:
+            out[i,width-2]=barr[i,chwidth*2]&0xFF
+            out[i,width-1]=(barr[i,chwidth*2]>>8)&0x0F
+    return out
+def u16to12(arr, use_nb=True):
+    """
+    Convert an unpacked 16-bit array into a packed 12-bit array (three 8-bit elements per two 12-bit value).
+
+    Note that all values must be below 2**12, i.e., 4096. Higher bits are ignored.
+    If ``use_nb==True`, use numba routines (about 2-3 times faster).
+    """
+    if use_nb:
+        *sh,nc=arr.shape
+        return u16to12nb2d(arr.reshape((-1,nc)).astype("uint16")).reshape(sh+[-1])
+    epx,opx=arr[...,::2],arr[...,1::2]
+    nepx=epx.shape[-1]
+    nopx=opx.shape[-1]
+    barr=np.zeros(arr.shape[:-1]+(nepx*2+nopx,),dtype="uint8")
+    barr[...,:nepx*3:3]=epx&0xFF
+    barr[...,1:nepx*3:3]=(epx>>8)&0x0F
+    barr[...,1:nopx*3:3]|=(opx&0x0F)<<4
+    barr[...,2:nopx*3:3]=(opx>>4)&0xFF
+    return barr
+
 class PretriggerBuffer:
     """
     Pretrigger buffer.
@@ -395,6 +433,7 @@ class FrameSaveThread(controller.QTaskThread):
         self.append=False
         self.filesplit=None
         self.format="raw"
+        self.format_parameters={}
         self.background_desc={}
         self._file_idx=0
         self.chunks_per_save=1
@@ -587,6 +626,7 @@ class FrameSaveThread(controller.QTaskThread):
                 "chunk_size":self.filesplit or self.v["batch_size"],
                 "append":self.append,
                 "format":self.format,
+                "format_parameters":self.format_parameters,
                 "background":self.background_desc,
                 "start_timestamp":time.time(),
                 "pretrigger_status/start":self.v["pretrigger_status"]}
@@ -615,6 +655,12 @@ class FrameSaveThread(controller.QTaskThread):
             except controller.threadprop.NoControllerThreadError:
                 pass
         return {}
+    def _get_custom_settings(self, finalized):
+        """Get custom settings depending the combination of saving parameters, which override the standard ones"""
+        settings={}
+        if finalized and self.format=="raw" and "dtype" in self.format_parameters:
+            settings["frame/dtype"]=self.format_parameters["dtype"]
+        return settings
     def write_settings(self, extra_settings=None):
         """Collect full settings dictionary and save it to the disk"""
         if self._cam_settings_time=="before":
@@ -622,6 +668,7 @@ class FrameSaveThread(controller.QTaskThread):
         else:
             settings=self._get_manager_settings(exclude=["cam"],alias={"cam/settings":"cam/settings_start"}) or dictionary.Dictionary()
         settings["save"]=self._get_settings()
+        settings.update(self._get_custom_settings(finalized=False),"save")
         if extra_settings is not None:
             settings["extra"]=extra_settings
         savefile.save_dict(settings,self._get_settings_path())
@@ -631,6 +678,7 @@ class FrameSaveThread(controller.QTaskThread):
         if os.path.exists(path):
             settings=loadfile.load_dict(path)
             settings.update(self._get_finalized_settings(),"save")
+            settings.update(self._get_custom_settings(finalized=True),"save")
             if self._cam_settings_time!="before":
                 settings.merge(self._get_manager_settings(include=["cam"]).get("cam",{}),path="cam")
             settings.merge(self._get_manager_settings(include=["cam/cnt"]).get("cam/cnt",{}),path="cam/cnt_after")
@@ -746,7 +794,10 @@ class FrameSaveThread(controller.QTaskThread):
                         self._file_idx+=1
                         self._clean_path(idx=self._file_idx)
         elif self.format=="raw":
-            if frames[0].dtype.kind=="f":
+            fmt_dtype=self.format_parameters.get("dtype")
+            if fmt_dtype is not None:
+                save_dtype={"uint12":"<u2"}.get(fmt_dtype,fmt_dtype)
+            elif frames[0].dtype.kind=="f":
                 save_dtype="<f8"
             elif frames[0].dtype.kind in "ui":
                 save_dtype=frames[0].dtype.newbyteorder("<")
@@ -759,7 +810,10 @@ class FrameSaveThread(controller.QTaskThread):
                 self._update_file_save(path)
                 with open(path,mode) as f:
                     for frm in frames:
-                        np.asarray(frm,save_dtype).tofile(f)
+                        if fmt_dtype=="uint12":
+                            u16to12(np.asarray(frm,save_dtype)).tofile(f)
+                        else:
+                            np.asarray(frm,save_dtype).tofile(f)
             else: # file splitting mechanics
                 f=None
                 try:
@@ -773,7 +827,10 @@ class FrameSaveThread(controller.QTaskThread):
                             self._update_file_save(path)
                             if f is None:
                                 f=open(path,mode)
-                            np.asarray(frm[frm_saved:frm_saved+frm_to_save],save_dtype).tofile(f)
+                            if fmt_dtype=="uint12":
+                                u16to12(np.asarray(frm[frm_saved:frm_saved+frm_to_save],save_dtype)).tofile(f)
+                            else:
+                                np.asarray(frm[frm_saved:frm_saved+frm_to_save],save_dtype).tofile(f)
                             frm_saved+=frm_to_save
                             nsaved+=frm_to_save
                             if nsaved%self.filesplit==0:
@@ -860,7 +917,7 @@ class FrameSaveThread(controller.QTaskThread):
 
 
 
-    def save_start(self, path, path_kind="pfx", batch_size=None, append=True, format="cam", filesplit=None, save_settings=False, perform_status_check=False, extra_settings=None):
+    def save_start(self, path, path_kind="pfx", batch_size=None, append=True, format="cam", format_parameters=None, filesplit=None, save_settings=False, perform_status_check=False, extra_settings=None):
         """
         Start saving routine.
 
@@ -870,7 +927,8 @@ class FrameSaveThread(controller.QTaskThread):
                 or ``"folder"`` (treat it as folder, main and aux files are stored inside)
             batch_size: maximal number of frames to save (by default, no limit)
             append (bool): if ``True`` and the destination file already exists, append data to it; otherwise, remove it before saving
-            format (str): file format; can be ``"cam"`` (.cam file), ``"raw"`` (raw binary in ``"<u2"`` format), or ``"tiff"`` (tiff format)
+            format (str): file format; can be ``"cam"`` (.cam file), ``"raw"`` (raw binary), or ``"tiff"`` (tiff format)
+            format_parameters (dist): extra format-specific saving parameters (e.g., pixel dtype)
             filesplit: maximal number of frames per file (by default, all frames are in one file); if defined, file names acquire numerical suffix
             save_settings (bool): if ``True``, save all application setting to the file
             perform_status_check (bool): if ``True`` and frames have status line (applies only to Photon Focus cameras), check status line to ensure no missing frames
@@ -887,6 +945,7 @@ class FrameSaveThread(controller.QTaskThread):
         if format not in ["cam","raw","tiff","bigtiff"]:
             raise ValueError("unrecognized format: {}".format(format))
         self.format=format
+        self.format_parameters=format_parameters or {}
         self.filesplit=filesplit
         self.v["saved"]=0
         self.v["scheduled"]=0
