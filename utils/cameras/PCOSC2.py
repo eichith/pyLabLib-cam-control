@@ -32,12 +32,22 @@ class FastScanBoolGUIParameter(cam_gui_parameters.BoolGUIParameter):
         if "pixel_rate" in parameters and "all_pixel_rates" in parameters:
             self.settings.i[self.gui_name]=(parameters["pixel_rate"]==parameters["all_pixel_rates"][-1])
 
+class DoubleImageModeBoolGUIParameter(cam_gui_parameters.BoolGUIParameter):
+    """Double image mode parameter"""
+    def __init__(self, settings):
+        super().__init__(settings,"double_image_mode","Double image",default=True)
+    def setup(self, parameters, full_info):
+        super().setup(parameters,full_info)
+        if not full_info.get("full_data/sensor/strDescription/wDoubleImageDESC"):
+            self.disable()
+
 class Settings_GUI(GenericCameraSettings_GUI):
     _bin_kind="both"
     _frame_period_kind="value"
     def setup_settings_tables(self):
         super().setup_settings_tables()
         self.add_parameter(FastScanBoolGUIParameter(self),"advanced")
+        self.add_parameter(DoubleImageModeBoolGUIParameter(self),"advanced")
         perform_status_check=cam_gui_parameters.BoolGUIParameter(self,"perform_status_check","Perform status line check",default=True,add_indicator=False,indirect=True)
         self.add_parameter(perform_status_check,"advanced").allow_diff_update=True
 
