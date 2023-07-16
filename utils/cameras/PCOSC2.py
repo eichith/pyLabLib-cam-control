@@ -102,7 +102,7 @@ class PCOCameraDescriptor(ICameraDescriptor):
     @classmethod
     def get_class_settings(cls):
         settings=super().get_class_settings()
-        settings["allow_garbage_collection"]=False
+        settings["gc/enabled"]=False
         return settings
     
     def make_thread(self, name):

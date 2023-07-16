@@ -90,7 +90,11 @@ class ICameraDescriptor:
     @classmethod
     def get_class_settings(cls):
         """Get dictionary with generic class settings"""
-        return {"allow_garbage_collection":True}
+        return dictionary.Dictionary({"gc/enabled":True})
+    def get_control_settings(self):
+        """Get dictionary with specific control settings (same structure as :meth:`get_class_settings`, but can be expanded in the settings file)"""
+        settings=self.get_class_settings()
+        return settings.updated(self.settings.get("control",{}))
 
     def make_thread(self, name):
         """Create camera thread with the given name"""

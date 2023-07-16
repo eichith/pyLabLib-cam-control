@@ -674,7 +674,7 @@ def load_config(path):
 
 def start_threads(settings, cam_desc):
     """Start and partially set up auxiliary threads"""
-    cam_class_settings=cam_desc.get_class_settings()
+    control_settings=cam_desc.get_control_settings()
     services.FrameBinningThread(preprocess_thread,kwargs={"src":cam_thread,"tag_in":"frames/new"}).start()
     services.FrameSlowdownThread(slowdown_thread,kwargs={"src":preprocess_thread,"tag_in":"frames/new"}).start()
     services.FrameProcessorThread(process_thread,kwargs={"src":slowdown_thread,"tag_in":"frames/new"}).start()
@@ -684,8 +684,9 @@ def start_threads(settings, cam_desc):
     services.FrameSaveThread(snap_save_thread,kwargs={"src":"any","tag":"frames/new/snap","settings_mgr":settings_manager_thread}).start()
     services.SettingsManager(settings_manager_thread).start()
     services.ResourceManager(resource_manager_thread).start()
-    allow_garbage_collection=cam_class_settings.get("allow_garbage_collection",True)
-    services.GarbageCollector(garbage_collector_thread,kwargs={"disabled":not allow_garbage_collection}).start()
+    allow_garbage_collection=control_settings.get("gc/enabled",True)
+    garbage_collection_periods=control_settings.get("gc/periods",{"default":10,"saving":60})
+    services.GarbageCollector(garbage_collector_thread,kwargs={"disabled":not allow_garbage_collection,"periods":garbage_collection_periods}).start()
     channel_accum=controller.sync_controller(channel_accumulator_thread)
     channel_accum.cs.add_source("raw",src=preprocess_thread,tag="frames/new",sync=True,kind="raw")
     channel_accum.cs.add_source("show",src=process_thread,tag="frames/new/show",sync=True,kind="show")
