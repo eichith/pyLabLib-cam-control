@@ -248,9 +248,10 @@ class ChannelAccumulator(controller.QTaskThread):
 
 class SaveFileMessage:
     """Message emitted upon a new file being created or finished"""
-    def __init__(self, evt, path):
+    def __init__(self, evt, path, settings=None):
         self.evt=evt
         self.path=path
+        self.settings=settings
 
 
 
@@ -450,6 +451,7 @@ class FrameSaveThread(controller.QTaskThread):
         self._last_frame_sid=None
         self._last_frame=None
         self._last_chunk_start=0
+        self._initial_save_settings=None
         self._tiff_writer=None
         self._last_notified_path=None
         self.v["max_queue_ram"]=2**30*4
@@ -618,9 +620,10 @@ class FrameSaveThread(controller.QTaskThread):
     def _get_frame_info_path(self):
         """Generate save path for frame info table file"""
         return self._make_path(subpath="frameinfo",ext="dat")
-    def _get_settings(self):
-        """Get settings dictionary for the saver thread"""
-        return {"path":file_utils.normalize_path(self.v["path"]),
+    def _get_initial_settings(self, update=False):
+        """Collect the settings dictionary for the saver thread"""
+        if update:
+            self._initial_save_settings={"path":file_utils.normalize_path(self.v["path"]),
                 "path_kind":self.v["path_kind"],
                 "batch_size":self.v["batch_size"],
                 "chunk_size":self.filesplit or self.v["batch_size"],
@@ -630,6 +633,7 @@ class FrameSaveThread(controller.QTaskThread):
                 "background":self.background_desc,
                 "start_timestamp":time.time(),
                 "pretrigger_status/start":self.v["pretrigger_status"]}
+        return self._initial_save_settings
     def _get_finalized_settings(self):
         """Get finalized settings (additional info at the end of saving process)"""
         settings={}
@@ -661,13 +665,19 @@ class FrameSaveThread(controller.QTaskThread):
         if finalized and self.format=="raw" and "dtype" in self.format_parameters:
             settings["frame/dtype"]=self.format_parameters["dtype"]
         return settings
+    def _get_full_save_settings(self, finalized=False):
+        settings=dictionary.Dictionary(self._get_initial_settings())
+        if finalized:
+            settings.update(self._get_finalized_settings())
+        settings.update(self._get_custom_settings(finalized=finalized))
+        return settings
     def write_settings(self, extra_settings=None):
         """Collect full settings dictionary and save it to the disk"""
         if self._cam_settings_time=="before":
             settings=self._get_manager_settings(exclude=["cam/settings"]) or dictionary.Dictionary()
         else:
             settings=self._get_manager_settings(exclude=["cam"],alias={"cam/settings":"cam/settings_start"}) or dictionary.Dictionary()
-        settings["save"]=self._get_settings()
+        settings["save"]=self._get_initial_settings()
         settings.update(self._get_custom_settings(finalized=False),"save")
         if extra_settings is not None:
             settings["extra"]=extra_settings
@@ -755,9 +765,9 @@ class FrameSaveThread(controller.QTaskThread):
     def _update_file_save(self, path=None):
         if self._last_notified_path!=path:
             if self._last_notified_path is not None:
-                self.send_multicast(tag="saving/file",value=SaveFileMessage("done",self._last_notified_path))
+                self.send_multicast(tag="saving/file",value=SaveFileMessage("done",self._last_notified_path,self._get_full_save_settings(finalized=True)))
             if path is not None:
-                self.send_multicast(tag="saving/file",value=SaveFileMessage("start",path))
+                self.send_multicast(tag="saving/file",value=SaveFileMessage("start",path,self._get_full_save_settings(finalized=False)))
             self._last_notified_path=path
     def _write_tiff(self, frames):
         try:
@@ -975,6 +985,7 @@ class FrameSaveThread(controller.QTaskThread):
             if filesplit is not None:
                 self._clean_path()
             self.write_background()
+            self._get_initial_settings(update=True)
             if save_settings:
                 self.write_settings(extra_settings=extra_settings)
             self.update_status("saving","in_progress",text="Saving in progress")
