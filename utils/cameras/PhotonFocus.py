@@ -322,13 +322,11 @@ class PhotonFocusSiSoCameraDescriptor(PhotonFocusCameraDescriptor):
         for i in range(len(siso_boards)):
             applets=SiliconSoftware.list_applets(i)
             app=None
-            if any(a.name=="DualAreaGray16" for a in applets):
-                app="DualAreaGray16"
-                ports=[0,1]
-            elif any(a.name=="SingleAreaGray16" for a in applets):
-                app="SingleAreaGray16"
-                ports=[0]
-            else:
+            for (n,p) in [("DualAreaGray16",[0,1]),("Acq_SingleBaseAreaGray",[0]),("Acq_DualBaseAreaGray",[0,1]),("SingleAreaGray16",[0])]:
+                if any(a.name==n for a in applets):
+                    app=n
+                    ports=p
+            if app is None:
                 continue
             for p in ports:
                 try:
