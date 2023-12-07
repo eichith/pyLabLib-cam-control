@@ -92,17 +92,20 @@ settings_manager_thread="settings_manager"
 resource_manager_thread="resource_manager"
 garbage_collector_thread="garbage_collector"
 
+_ext_controller_names={"camera":cam_thread,"processor":process_thread,"preprocessor":preprocess_thread,"saver":save_thread,"snap_saver":snap_save_thread,
+    "slowdown":slowdown_thread,"channel_accumulator":channel_accumulator_thread,"settings_manager":settings_manager_thread,"resource_manager":resource_manager_thread}
 
 ### Main window ###
 class StandaloneFrame(container.QWidgetContainer):
     @controller.exsafe
-    def setup(self, settings, cam_name, cam_desc):
+    def setup(self, settings, cam_name, cam_desc, plugin_manager):
         super().setup(layout="hbox")
         self.ctl.res_mgr=controller.sync_controller(resource_manager_thread)
         
         self.cam_desc=cam_desc
         self.cam_name=cam_name
         self.settings=settings
+        self.plugin_manager=plugin_manager
         self.ctl.v["settings/runtime/root_folder"]=settings["runtime/root_folder"]
         self.load_locals()
         self.gui_level="full"
@@ -204,9 +207,6 @@ class StandaloneFrame(container.QWidgetContainer):
         # Setup plugins
         plugin_tab=self.control_tabs.add_tab("plugins","Plugins",gui_values_path="plugins",layout="grid")
         plugin_tab.add_padding(stretch=1,location=50)
-        self._loading_plugins={}
-        self._running_plugins={}
-        self._plugin_classes={p.get_class_name():p for p in plugins.find_plugins("plugins",root=settings["runtime/root_folder"])}
         self._plugin_parameters=dictionary.Dictionary()
 
         # Setup parameters loading and saving
@@ -224,7 +224,9 @@ class StandaloneFrame(container.QWidgetContainer):
             self.c[tabs].set_by_name(name)
         self.ctl.add_thread_method("toggle_tab",toggle_tab)
         # Load plugins
-        self.load_config_plugins()
+        self.plugin_manager.sync_plugins()
+        self.plugin_manager.set_main_frame(self)
+        self.plugin_manager.unlock_barrier("plugin_setup")
 
     def _add_savebox(self, parent):
         self.saving_settings_table=parent.add_to_layout(SaveBox_ctl.SaveBox_GUI(self))
@@ -336,44 +338,6 @@ class StandaloneFrame(container.QWidgetContainer):
                 self.about_window.showNormal()
 
 
-    _ext_controller_names={"camera":cam_thread,"processor":process_thread,"preprocessor":preprocess_thread,"saver":save_thread,"snap_saver":snap_save_thread,
-        "slowdown":slowdown_thread,"channel_accumulator":channel_accumulator_thread,"settings_manager":settings_manager_thread,"resource_manager":resource_manager_thread}
-    def _ordered_plugins(self):
-        return sorted(self._running_plugins.items(),key=lambda v: v[1].start_order)
-    def _sync_plugins(self, exec_point="plugin_setup"):
-        for plugin in list(self._running_plugins.values()):
-            plugin.ctl.sync_exec_point(exec_point)
-    def _notify_plugins(self):
-        notified=[]
-        last_order=None
-        for _,plugin in self._ordered_plugins():
-            if last_order is not None and plugin.start_order!=last_order:
-                for ctl in notified:
-                    ctl.sync_exec_point("run")
-            if plugin.notifier is not None:
-                plugin.notifier.notify()
-            notified.append(plugin.ctl)
-            last_order=plugin.start_order
-    def load_config_plugins(self):
-        """Load all plugins described in the configuration file"""
-        plugins_list=[]
-        if "plugins" in self.settings:
-            for p in sorted(self.settings["plugins"]):
-                if "class" in self.settings["plugins",p]:
-                    class_name=self.settings["plugins",p,"class"]
-                    name=self.settings.get(("plugins",p,"name"),p)
-                    parameters=self.settings.get(("plugins",p,"parameters"),None)
-                    plugin_class=self._plugin_classes[class_name]
-                    start_order=self.settings.get(("plugins",p,"start_order"),plugin_class._default_start_order)
-                    plugins_list.append((plugin_class,name,parameters,start_order))
-        plugins_list.sort(key=lambda v: v[-1])
-        last_order=None
-        for plugin_class,name,parameters,start_order in plugins_list:
-            if last_order is not None and start_order!=last_order:
-                self._sync_plugins()
-            self.load_plugin(plugin_class,name=name,parameters=parameters,start_order=start_order)
-            last_order=start_order
-    PluginInfo=collections.namedtuple("PluginInfo",("ctl","notifier","start_order"))
     @controller.call_in_gui_thread
     def load_plugin(self, plugin_class, name="__default__", parameters=None, start_order=0):
         """
@@ -384,14 +348,7 @@ class StandaloneFrame(container.QWidgetContainer):
             name: plugin name (for the cases of several plugins of the same class)
             parameters: additional plugin parameters
         """
-        full_name=plugin_class.get_class_name(),name
-        if full_name in self._running_plugins:
-            raise RuntimeError("plugin {}.{} is already running".format(*full_name))
-        notifier=synchronizing.QThreadNotifier() if not self._running else None
-        plugin_ctl=plugins.PluginThreadController("plugin.{}.{}".format(*full_name),kwargs={"name":name,"main_frame":self,"notifier":notifier,
-            "plugin_cls":plugin_class,"ext_controller_names":self._ext_controller_names,"parameters":parameters})
-        self._running_plugins[full_name]=self.PluginInfo(plugin_ctl,notifier,start_order)
-        plugin_ctl.start()
+        self.plugin_manager.start_plugin(plugin_class,name=name,parameters=parameters,start_order=start_order,barriers={"plugin_start"} if not self._running else {})
     @controller.call_in_gui_thread
     def initialize_plugin(self, plugin):
         """
@@ -409,14 +366,16 @@ class StandaloneFrame(container.QWidgetContainer):
         """
         Finalize plugin.
 
-        Called automatically by the plugin thread after plugin has been stopped and cleaned up.
+        Called automatically by the plugin thread after plugin has been stopped and before it was cleaned up.
         """
         full_name=plugin.get_class_name(),plugin.get_instance_name()
+        self.plugin_manager.remove_plugin(full_name)
+        if not plugin.is_running():
+            return
         values=plugin.get_all_values()
         if full_name in self._plugin_parameters:
             del self._plugin_parameters[full_name]
         self._plugin_parameters[full_name]=values
-        del self._running_plugins[full_name]
 
     def set_gui_level(self, level):
         """Set GUI detail level (either ``"full"`` for all controls, or ``"simplified"`` for essentials)"""
@@ -425,13 +384,13 @@ class StandaloneFrame(container.QWidgetContainer):
             self.control_tabs.remove_tab("proc_tab")
     def _update_plugin_parameters(self):
         """Update ``_plugin_parameters`` attribute to reflect current plugin parameters"""
-        for name,plugin in self._ordered_plugins():
+        for name,plugin in self.plugin_manager.get_running_plugins(ordered=True):
             if plugin.ctl.is_plugin_running():
                 par=plugin.ctl.get_all_values()
                 self._plugin_parameters.add_entry(name,par,force=True)
     def _apply_plugin_parameters(self):
         """Apply values in the ``_plugin_parameters`` attribute to all running plugins"""
-        for name,plugin in self._ordered_plugins():
+        for name,plugin in self.plugin_manager.get_running_plugins(ordered=True):
             if plugin.ctl.is_plugin_running() and name in self._plugin_parameters:
                 plugin.ctl.set_all_values(self._plugin_parameters[name])
     def get_all_values(self, full_status=False):
@@ -516,11 +475,11 @@ class StandaloneFrame(container.QWidgetContainer):
         savefile.save_dict(settings,path)
     @controller.exsafeSlot()
     def start(self):
-        self._sync_plugins()
+        self.plugin_manager.sync_plugins()
         controller.sync_controller(cam_thread)
         self.load_settings(warn_if_missing=False)
         super().start()
-        self._notify_plugins()
+        self.plugin_manager.unlock_barrier("plugin_start")
         if not self.locals.get("tutorial_shown",False):
             self.show_tutorial_box()
     @controller.toploopSlot()
@@ -528,7 +487,7 @@ class StandaloneFrame(container.QWidgetContainer):
         if self._running:
             self.save_settings()
             self.save_locals()
-        for plugin in list(self._running_plugins.values()):
+        for plugin in self.plugin_manager.get_running_plugins().values():
             plugin.ctl.stop(sync=True)
         super().stop()
 
@@ -735,10 +694,14 @@ def start_app(ask_on_no_cam=True):
 
         cam_desc_class=camera_descriptors[settings["cameras",cam_name,"kind"]]
         cam_desc=cam_desc_class(cam_name,settings=settings["cameras",cam_name])
+        plugin_manager=plugins.PluginManager(settings,ext_controller_names=_ext_controller_names)
+        plugin_manager.build_plugins()
+        plugin_manager.sync_plugins()
         start_threads(settings,cam_desc)
+        plugin_manager.unlock_barrier("plugin_preinit")
         cam_ctl=cam_desc.make_thread(cam_thread)
         cam_ctl.start()
-        main_form.setup(settings=settings,cam_name=cam_name,cam_desc=cam_desc)
+        main_form.setup(settings=settings,cam_name=cam_name,cam_desc=cam_desc,plugin_manager=plugin_manager)
         settings_ctl=controller.sync_controller(settings_manager_thread)
         settings_ctl.ca.update_settings("software/version",version)
         settings_ctl.ca.add_source("cam",cam_ctl.cs.get_full_info)

@@ -1,4 +1,4 @@
-from pylablib.core.thread import controller
+from pylablib.core.thread import controller, synchronizing
 from pylablib.core.utils import files as file_utils, string as string_utils
 from pylablib.core.gui.widgets import container
 from pylablib.core.gui import QtWidgets, utils
@@ -7,8 +7,10 @@ from pylablib import widgets
 import importlib
 import os
 import sys
+import collections
 
 
+_plugin_init_order=["plugin_create","plugin_preinit","plugin_setup","plugin_start"]
 class PluginThreadController(controller.QTaskThread):
     """
     Plugin thread controller.
@@ -19,22 +21,54 @@ class PluginThreadController(controller.QTaskThread):
     Setup args:
         - ``name``: plugin name
         - ``plugin_cls``: plugin controller class (subclass of :cls:`IPlugin`)
-        - ``main_frame``: main GUI :cls:`.QFrame` object
         - ``parameters``: additional parameters passed to the plugin on creation
         - ``ext_controller_names``: dictionary with aliases and real names of additional controllers (camera, saver, etc)
     """
-    def setup_task(self, name, plugin_cls, main_frame, notifier=None, parameters=None, ext_controller_names=None):
+    def __init__(self, name=None, args=None, kwargs=None, multicast_pool=None):
+        super().__init__(name=name,args=args,kwargs=kwargs,multicast_pool=multicast_pool)
         self.plugin=None
-        self.main_frame=main_frame
-        ext_controllers={a:controller.sync_controller(n) for a,n in ext_controller_names.items()} if ext_controller_names else None
-        gui_ctl=self._make_manager(main_frame,"{}.{}".format(plugin_cls.get_class_name(),name))
-        self.plugin=plugin_cls(name,self,gui_ctl,parameters=parameters,ext_controllers=ext_controllers)
+        self.main_frame=None
+        self.barriers=kwargs.pop("barriers",{})
+        self._passed_barriers=0
+        self._unlocked_barriers=[]
+    def setup_task(self, name, plugin_cls, parameters=None, ext_controller_names=None):
+        self._next_init_step("plugin_create")
+        self.plugin=plugin_cls(name,self,parameters=parameters,ext_controller_names=ext_controller_names)
+        self._next_init_step("plugin_preinit")
+        self.plugin._sync_extctls()
+        self.plugin.preinit()
+        self._next_init_step("plugin_setup")
+        self.plugin._sync_camctl()
+        gui_ctl=self._make_manager(self.main_frame,"{}.{}".format(self.plugin.get_class_name(),name))
+        self.plugin._set_gui(gui_ctl)
         self.plugin._open()
-        self.notify_exec_point("plugin_setup")
-        if notifier is not None:
-            notifier.wait()
+        self._next_init_step("plugin_start")
         self.main_frame.initialize_plugin(self.plugin)  # GUI values are set here
+        self._next_init_step()
 
+    def _wait_barrier(self, name):
+        if name in self.barriers:
+            self.barriers[name].wait()
+    def _next_init_step(self, barrier=None):
+        if barrier is not None and self._passed_barriers<len(_plugin_init_order) and barrier!=_plugin_init_order[self._passed_barriers]:
+            raise ValueError("expected to unlock next barrier {}; got {} instead".format(_plugin_init_order[self._passed_barriers],barrier))
+        if self._passed_barriers>0 and self._passed_barriers<=len(_plugin_init_order):
+            self.notify_exec_point(_plugin_init_order[self._passed_barriers-1])
+        if self._passed_barriers<len(_plugin_init_order):
+            self._wait_barrier(_plugin_init_order[self._passed_barriers])
+        self._passed_barriers+=1
+    def unlock_barrier(self, name):
+        """Unlock the barrier with the given name"""
+        if name in self.barriers:
+            self.barriers[name].notify()
+        self._unlocked_barriers.append(name)
+    def sync_latest_barrier(self):
+        """Synchronize with all threads up to the latest unlocked barrier"""
+        if self._unlocked_barriers:
+            self.sync_exec_point(self._unlocked_barriers[-1])
+    def set_main_frame(self, main_frame):
+        """Set the main frame object; necessary to proceed past ``"plugin_setup"`` barrier"""
+        self.main_frame=main_frame
     @controller.call_in_gui_thread
     def _make_manager(self, main_frame, full_name):
         manager=PluginGUIManager(main_frame)
@@ -61,7 +95,8 @@ class PluginThreadController(controller.QTaskThread):
 
     def finalize_task(self):
         if self.plugin is not None:
-            self.main_frame.finalize_plugin(self.plugin)
+            if self.main_frame is not None:
+                self.main_frame.finalize_plugin(self.plugin)
             self.plugin._close()
 
 
@@ -237,9 +272,9 @@ class IPlugin:
         ctl: plugin thread controller (instance of :cls:`PluginThreadController`)
         gui: plugin GUI manager
         parameters: additional parameters supplied in the settings file (``None`` of no parameters)
-        ext_controllers: dictionary with external controllers (such as camera or saver)
+        ext_controller_names: dictionary with external controller names, which ties purposes (such as ``"camera"`` or ``"saver"``) with the controller names
     """
-    def __init__(self, name, ctl, gui, parameters=None, ext_controllers=None):
+    def __init__(self, name, ctl, parameters=None, ext_controller_names=None):
         self.name=name
         self.full_name="{}.{}".format(self.get_class_name(),self.name)
         self.ctl=ctl
@@ -247,9 +282,11 @@ class IPlugin:
         self.cs=self.ctl.cs
         self.csi=self.ctl.csi
         self.guictl=controller.get_gui_controller()
-        self.extctls=ext_controllers or {}
+        self.gui=None
+        self.extctl_names=ext_controller_names or {}
+        self.extctls=None
         self.parameters=parameters or {}
-        self.gui=gui
+        self._opened=False
         self._running=False
         self._gui_started=False
 
@@ -277,6 +314,15 @@ class IPlugin:
         if kind=="name":
             return self.name
     
+    def preinit(self):
+        """
+        Pre-initialize plugin.
+        
+        Called after all auxiliary threads are started, but before the camera thread is started.
+
+        To be overloaded.
+        Executed in the plugin thread.
+        """
     def setup(self):
         """
         Setup plugin (define attributes, jobs, etc).
@@ -289,17 +335,40 @@ class IPlugin:
         """
         Cleanup plugin (close handlers, etc).
 
+        Called upon the plugin unloading, but only if it reached the setup point (i.e., the ``setup`` method has executed successfully)
+
+        To be overloaded.
+        Executed in the plugin thread.
+        """
+    def postcleanup(self):
+        """
+        Post-cleanup plugin.
+
+        Called after ``cleanup`` unconditionally (i.e., even if the ``setup`` did not run).
+
         To be overloaded.
         Executed in the plugin thread.
         """
 
+    def _set_gui(self, gui):
+        self.gui=gui
+    def _sync_extctls(self):
+        self.extctls={a:controller.sync_controller(n) for a,n in self.extctl_names.items() if a!="camera"}
+    def _sync_camctl(self):
+        if "camera" in self.extctl_names:
+            self.extctls["camera"]=controller.sync_controller(self.extctl_names["camera"])
     def _open(self):
+        self._opened=True
         self.setup()
         self._running=True
     def _close(self):
         self._running=False
-        self.cleanup()
-        controller.call_in_gui_thread(self.gui.clear)()
+        if self._opened:
+            self.cleanup()
+            if self.gui is not None:
+                controller.call_in_gui_thread(self.gui.clear)()
+        self._opened=False
+        self.postcleanup()
     def is_running(self):
         """Check if the plugin is still running"""
         return self._running
@@ -354,6 +423,95 @@ class IPlugin:
         Executed in the GUI thread.
         """
         self._gui_started=True
+
+
+
+
+class PluginManager:
+    """
+    Plugin manager.
+
+    Controls plugins creation, initialization, and finalization according the their start order.
+
+    Args:
+        settings: settings dictionary with the possible ``"plugins"`` branch describing the plugins
+        ext_controller_names: dictionary with external controller names, which ties purposes (such as ``"camera"`` or ``"saver"``) with the controller names
+    """
+    def __init__(self, settings, ext_controller_names=None):
+        self.settings=settings
+        self.plugin_classes={p.get_class_name():p for p in find_plugins("plugins",root=settings["runtime/root_folder"])}
+        self._running_plugins={}
+        self._ext_controller_names=ext_controller_names
+    
+    def _ordered_plugins(self):
+        return sorted(self._running_plugins.items(),key=lambda v: v[1].start_order)
+    def sync_plugins(self):
+        for plugin in self._running_plugins.values():
+            plugin.ctl.sync_latest_barrier()
+    def unlock_barrier(self, name):
+        """Unlock the barrier with the given name to allow the plugins to proceed with the next initialization stage"""
+        last_order=None
+        for _,plugin in self._ordered_plugins():
+            if last_order is not None and plugin.start_order!=last_order:
+                self.sync_plugins()
+            plugin.ctl.unlock_barrier(name)
+            last_order=plugin.start_order
+    def build_plugins(self):
+        """Start all plugin threads described in the configuration file"""
+        plugins_list=[]
+        if "plugins" in self.settings:
+            for p in sorted(self.settings["plugins"]):
+                if "class" in self.settings["plugins",p]:
+                    class_name=self.settings["plugins",p,"class"]
+                    name=self.settings.get(("plugins",p,"name"),p)
+                    parameters=self.settings.get(("plugins",p,"parameters"),None)
+                    plugin_class=self.plugin_classes[class_name]
+                    start_order=self.settings.get(("plugins",p,"start_order"),plugin_class._default_start_order)
+                    plugins_list.append((plugin_class,name,parameters,start_order))
+        plugins_list.sort(key=lambda v: v[-1])
+        for plugin_class,name,parameters,start_order in plugins_list:
+            self.start_plugin(plugin_class,name=name,parameters=parameters,start_order=start_order)
+        self.unlock_barrier("plugin_create")
+    def set_main_frame(self, main_frame):
+        """Set the main GUI frame object for the plugins"""
+        for plugin in self._running_plugins.values():
+            plugin.ctl.set_main_frame(main_frame)
+    PluginInfo=collections.namedtuple("PluginInfo",("ctl","start_order"))
+    @controller.call_in_gui_thread
+    def start_plugin(self, plugin_class, name="__default__", parameters=None, start_order=0, barriers=None):
+        """
+        Start plugin thread.
+
+        Args:
+            plugin_class: class of the plugin (subclass of :cls:`.IPlugin`)
+            name: plugin name (for the cases of several plugins of the same class)
+            parameters: additional plugin parameters
+            start_order: start order among other plugins at the given stage
+            barriers: list of barriers to include in the initialization (by default, all of them)
+        """
+        full_name=plugin_class.get_class_name(),name
+        if full_name in self._running_plugins:
+            raise RuntimeError("plugin {}.{} is already running".format(*full_name))
+        if barriers is None:
+            barriers=_plugin_init_order
+        barriers={n:synchronizing.QThreadNotifier() for n in barriers}
+        plugin_ctl=PluginThreadController("plugin.{}.{}".format(*full_name),kwargs={"name":name,"barriers":barriers,
+            "plugin_cls":plugin_class,"ext_controller_names":self._ext_controller_names,"parameters":parameters})
+        self._running_plugins[full_name]=self.PluginInfo(plugin_ctl,start_order)
+        plugin_ctl.start()
+    def remove_plugin(self, name):
+        """Remove the plugin with the given name from the list"""
+        del self._running_plugins[name]
+    def get_running_plugins(self, ordered=False):
+        """
+        Get all running plugins.
+
+        If ``ordered==False``, return the dictionary ``{name: (plugin_ctl,start_order)}`` of the plugin controllers;
+        otherwise, return a list of corresponding tuples ``[(name, (plugin_ctl,start_order))]`` ordered according to the start order.
+        """
+        if ordered:
+            return self._ordered_plugins()
+        return self._running_plugins.copy()
 
 
 
