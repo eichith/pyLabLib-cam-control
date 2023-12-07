@@ -681,7 +681,9 @@ class FrameSaveThread(controller.QTaskThread):
         settings.update(self._get_custom_settings(finalized=False),"save")
         if extra_settings is not None:
             settings["extra"]=extra_settings
-        savefile.save_dict(settings,self._get_settings_path())
+        path=self._get_settings_path()
+        savefile.save_dict(settings,path)
+        self._update_settings_save(path)
     def finalize_settings(self):
         """Save finalized settings to the file"""
         path=self._get_settings_path()
@@ -693,6 +695,7 @@ class FrameSaveThread(controller.QTaskThread):
                 settings.merge(self._get_manager_settings(include=["cam"]).get("cam",{}),path="cam")
             settings.merge(self._get_manager_settings(include=["cam/cnt"]).get("cam/cnt",{}),path="cam/cnt_after")
             savefile.save_dict(settings,path)
+            self._update_settings_save(path,finalize=True)
 
     def _get_background_path(self):
         """Generate save path for background file"""
@@ -769,6 +772,9 @@ class FrameSaveThread(controller.QTaskThread):
             if path is not None:
                 self.send_multicast(tag="saving/file",value=SaveFileMessage("start",path,self._get_full_save_settings(finalized=False)))
             self._last_notified_path=path
+    def _update_settings_save(self, path, finalize=False):
+        evt="settings/finalize" if finalize else "settings/start"
+        self.send_multicast(tag="saving/file",value=SaveFileMessage(evt,path,None))
     def _write_tiff(self, frames):
         try:
             self._tiff_writer._meta["contiguous"]=False # force to flush after write to check the file size

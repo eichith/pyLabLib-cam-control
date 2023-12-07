@@ -103,7 +103,7 @@ class Settings_GUI(GenericCameraSettings_GUI):
         if name=="EMCCD_gain": return cam_gui_parameters.IntGUIParameter(self,"EMCCD_gain","EMCCD gain",limit=(0,255),
             to_camera=lambda v: (v,False), from_camera=lambda v:v[0])
         if name=="fan_mode": return cam_gui_parameters.EnumGUIParameter(self,"fan_mode","Fan",{"off":"Off","low":"Low","full":"Full"})
-        if name=="cooler": return cam_gui_parameters.EnumGUIParameter(self,"cooler","Cooler",{9:"off",1:"On"},default=1)
+        if name=="cooler": return cam_gui_parameters.EnumGUIParameter(self,"cooler","Cooler",{0:"Off",1:"On"},default=1)
         if name=="temperature": return TemperatureParameter(self)
         return super().get_basic_parameters(name)
     def setup_settings_tables(self):
