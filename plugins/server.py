@@ -153,6 +153,8 @@ class ServerCommThread(controller.QTaskThread):
                 result=self.process_save_request(rname,args)
             elif kind=="cam":
                 result=self.process_cam_request(rname,args)
+            elif kind=="proc":
+                result=self.process_proc_request(rname,args)
             elif kind=="stream":
                 result=self.process_stream_request(rname,args)
             else:
@@ -229,6 +231,17 @@ class ServerCommThread(controller.QTaskThread):
             self.plugin.cam_control(name,value=args)
             return "success"
         raise IncomingMessageError("wrong_request","Unrecognized camera request '{}'".format(name),{"value":name})
+    def process_proc_request(self, name, args):
+        """Process processing-related request"""
+        if name=="bgsub/get_status":
+            return self.plugin.proc_control(name)
+        if name=="bgsub/get_full_status":
+            status,bg=self.plugin.proc_control(name)
+            status["payload"]=bg
+            return status
+        if name in ["bgsub/get_snapshot_background","bgsub/get_running_background"]:
+            return {"payload":self.plugin.proc_control(name)}
+        raise IncomingMessageError("wrong_request","Unrecognized processing request '{}'".format(name),{"value":name})
     def process_stream_request(self, name, args):
         """Process data streaming/acquisition-related request"""
         if name=="buffer/setup":
@@ -359,6 +372,26 @@ class ServerPlugin(base.IPlugin):
             return self.extctls["camera"].v["parameters",name]
         if action=="param/set":
             self.extctls["camera"].cs.apply_parameters(value)
+    def proc_control(self, action, value=None):
+        """Perform proc control operation"""
+        kind,op=action.split("/")
+        if kind=="bgsub":
+            proc=self.extctls["processor"]
+            if op=="get_status":
+                status={k:proc.v[k] for k in ["enabled","method","snapshot/grabbed","snapshot/background/state","running/grabbed"]}
+                status.update({k:proc.v[k].as_dict() for k in ["snapshot/parameters","running/parameters"]})
+                return status
+            if op=="get_full_status":
+                status=self.proc_control("bgsub/get_status")
+                if status["method"] in ["snapshot","running"]:
+                    bg=proc.v[status["method"],"background/frame"]
+                else:
+                    bg=None
+                return status,bg
+            if op=="get_snapshot_background":
+                return proc.v["snapshot/background/frame"]
+            if op=="get_running_background":
+                return proc.v["running/background/frame"]
     def get_frame_stream_parameters(self):
         """Get parameters required for the subscription to the camera source"""
         return {"srcs":self.extctls["preprocessor"].name,"tags":"frames/new"}

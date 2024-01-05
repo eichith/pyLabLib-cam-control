@@ -158,6 +158,8 @@ Control server
 To allow platform-independent external control of the software, there is an option to run a TCP/IP server. This server can receive commands from and send data to any other software running either locally on the same PC, or within the local network. The communication is mostly done via a text JSON protocol, which is straightforward to parse in most common languages.
 
 
+.. _expanding_server_setup:
+
 Setting up and connection
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -186,8 +188,10 @@ Finally, if the PC has several network interfaces, you can specify the IP addres
 
     plugins/serv/parameters/ip	127.0.0.1
 
-After the server is set up and software is started, the server starts automatically. If it is running, you can see its status on the bottom of the ``Plugins`` tab. It shows the server IP address and port, as well as the number of currently connected clients. Several clients can be operating simultaneously.
+After the server is set up and software is started, the server starts automatically. If it is running, you can see its status on the bottom of the ``Plugins`` tab. It shows the server IP address and port, as well as the number of currently connected clients. Several clients can be operating simultaneously. It is recommended that the same connection socket should be maintained throughout the session, as some resources (e.g., :ref:`streaming buffer <_expanding_server_requests_stream>`) are local to the given connection.
 
+
+.. _expanding_server_message_format:
 
 General message format
 ~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -224,8 +228,14 @@ The requests and replies normally have the same format, with the reply typically
 Finally, note again that in request only ``"parameters"`` field is necessary. Hence, the command above can be shortened to ``{"parameters":{"name":"cam/param/get","args":{"name":"exposure"}}}`` and, e.g., to start camera acquisition you can simply send ``{"parameters":{"name":"cam/acq/start"}}``.
 
 
+
+.. _expanding_server_requests:
+
 Requests description
 ~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+.. _expanding_server_requests_gui:
 
 GUI requests
 *************************
@@ -284,6 +294,8 @@ These requests directly address the GUI. They are almost directly analogous to e
 To initiate a button press, you need to set its value to ``True``.
 
 
+.. _expanding_server_requests_save:
+
 Save requests
 *************************
 
@@ -336,6 +348,9 @@ These requests initiate or stop data streaming to the drive:
 Note that if the path is explicitly specified in the request, then this exact path is used. That is, of ``On duplicate name`` is set to ``Rename`` in the interface, it will not take an effect.
 
 
+
+.. _expanding_server_requests_cam:
+
 Camera requests
 *************************
 
@@ -382,6 +397,35 @@ These requests directly control the camera:
     - ``{"name": "cam/param/set", "args": {"exposure": 0.1, "roi": [0, 256, 0, 256]}}`` set the camera exposure to 0.1 s and ROI to span from 0 to 256 on both axes
 
 
+
+.. _expanding_server_requests_proc:
+
+Processing requests
+*************************
+
+These requests control and query the frame processing parameters:
+
+- ``"proc/bgsub/get_status"``: get the status of the background subtraction
+  
+  - *Reply args*:
+  
+    - ``"enabled"``: indicates whether the subtraction is enabled
+    - ``"method"``: subtraction method (``"snapshot"`` or ``"running"``)
+    - ``"snapshot/grabbed"``: number of frames grabbed for the snapshot background calculation
+    - ``"snapshot/background/state"``: snapshot background calculation state: ``"none"`` (none acquired), ``"acquiring"`` (accumulation in progress), ``"valid"`` (acquired and valid), or ``"wrong_size"`` (size mismatch)
+    - ``"running/grabbed"``: number of frames grabbed for the running background calculation
+
+- ``"proc/bgsub/get_full_status"``: get the more complete status of the background subtraction. The reply arguments are the same as for ``"proc/bgsub/get_status"``, but the additional payload (see :ref:`streaming requests <expanding_server_requests_stream>` for details) contains the background frame if the subtraction if on and the frame is valid (otherwise there is no payload)
+
+- ``"proc/bgsub/get_snapshot_background"``: get the snapshot background in the payload if valid
+
+- ``"proc/bgsub/get_running_background"``: get the running background in the payload if valid
+
+
+
+
+.. _expanding_server_requests_stream:
+
 Streaming requests
 *************************
 
@@ -409,7 +453,7 @@ Some of the replies can contain binary frame data, so their format differs from 
 
 Payload description has 3 fields. First, ``"nbytes"`` specifies the total payload size in bytes. In the example above it states that this message is followed by ``13107200`` bytes of binary data. Next ,``"dtype"`` specifies the binary data format in the standard `numpy format <https://numpy.org/doc/stable/reference/arrays.dtypes.html>`__. Here ``"<u2"`` means that the data is 2-byte unsigned integer withe the little-endian byte order (the system default). Finally, ``"shape"`` specifies the shape of the result, i.e., dimensions along each axis when it is represented as a multidimensional array. In the example the shape is ``[100, 256, 256]``, which means a 3D 100x256x256 array. In this particular reply the first axis is the frame index and the other 2 are the frame axes, i.e., the data contains 100 of 256x256 frames.
 
-The streaming is done through requests, which means that it requires an intermediate buffer to store the frames between these requests (similar to, e.g., camera frame buffer). Hence, one first need to setup this buffer using ``"stream/buffer/setup"`` command, and then request the frames with ``"stream/buffer/read"`` command:
+The streaming is done through requests, which means that it requires an intermediate buffer to store the frames between these requests (similar to, e.g., camera frame buffer). Hence, one first need to setup this buffer using ``"stream/buffer/setup"`` command, and then request the frames with ``"stream/buffer/read"`` command. Note that the frames buffers are separate for each server connection. This means that as soon as you close the socket, the buffer will be removed. Hence, to use the streaming functionality, you need to keep the same connection opened continuously.
 
 - ``"stream/buffer/setup"``: setup the streaming buffer or clear it if it is already set up
   
