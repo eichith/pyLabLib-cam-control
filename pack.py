@@ -59,6 +59,7 @@ def copy_control(dst):
     for f in file_utils.list_dir(os.path.join(dst_control,"plugins"),file_filter=r".*\.py").files:
         if f[:-3] not in include_plugins+["__init__","base"]:
             file_utils.retry_remove(os.path.join(dst_control,"plugins",f))
+    file_utils.retry_remove_dir(os.path.join(dst_control,"plugins","advanced"))
 def copy_docs(dst):
     subprocess.call(["python.exe","make-sphinx.py","-c"],cwd="docs")
     file_utils.retry_copy_dir(os.path.join("docs","_build","html"),os.path.join(dst,"docs"))

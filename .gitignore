@@ -10,6 +10,8 @@ launcher/*.exe
 launcher/*.obj
 launcher/*.res
 
+plugins/advanced/
+
 Thumbs.db
 
 # Byte-compiled / optimized / DLL files
