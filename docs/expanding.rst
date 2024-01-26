@@ -188,7 +188,7 @@ Finally, if the PC has several network interfaces, you can specify the IP addres
 
     plugins/serv/parameters/ip	127.0.0.1
 
-After the server is set up and software is started, the server starts automatically. If it is running, you can see its status on the bottom of the ``Plugins`` tab. It shows the server IP address and port, as well as the number of currently connected clients. Several clients can be operating simultaneously. It is recommended that the same connection socket should be maintained throughout the session, as some resources (e.g., :ref:`streaming buffer <_expanding_server_requests_stream>`) are local to the given connection.
+After the server is set up and software is started, the server starts automatically. If it is running, you can see its status on the bottom of the ``Plugins`` tab. It shows the server IP address and port, as well as the number of currently connected clients. Several clients can be operating simultaneously. It is recommended that the same connection socket should be maintained throughout the session, as some resources (e.g., :ref:`streaming buffer <expanding_server_requests_stream>`) are local to the given connection.
 
 
 .. _expanding_server_message_format:
