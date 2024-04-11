@@ -15,7 +15,11 @@ parser=argparse.ArgumentParser()
 parser.add_argument("--force","-f",action="store_true",help="clean the cam-control and pylablib folder, but keep the python interpreter")
 parser.add_argument("--full-force","-ff",action="store_true",help="completely clean and overwrite the destination folder")
 parser.add_argument("--interpreter","-i",metavar="INTERPRETER",help="python interpreter (a path to the set up interpreter folder)")
+parser.add_argument("--plugins",metavar="PLUGINS",default="",help="list of plugins to add in addition to the standard ones")
+parser.add_argument("--advanced-plugins",action="store_true",help="include all advanced plugins")
 parser.add_argument("--noarchive",action="store_true",help="skip creating the zip file")
+parser.add_argument("--nodocs",action="store_true",help="skip generating doc files")
+parser.add_argument("--git",action="store_true",help="set up Git repo")
 parser.add_argument("--nocompile",action="store_true",help="skip re-compiling executables (it is only necessary when python file names or icons are changed)")
 parser.add_argument("dst",metavar="DST",help="destination folder")
 clargs=parser.parse_args()
@@ -46,7 +50,7 @@ pll_copy_file_filter=string_utils.StringFilter(include=r".*\.pyd?$")
 pll_copy_folder_filter=string_utils.StringFilter(exclude=r"__pycache__")
 def copy_pll(dst):
     file_utils.retry_copy_dir(pll_folder,os.path.join(dst,"cam-control","pylablib"),folder_filter=pll_copy_folder_filter,file_filter=pll_copy_file_filter)
-include_plugins=["filter","server","trigger_save"]
+include_plugins=["filter","server","trigger_save"]+[p.strip() for p in clargs.plugins.strip().split(",") if p.strip()]
 control_copy_file_filter=string_utils.StringFilter(include=r".*\.py|detect-log-errors\.cmd|.*\.png|LICENSE|requirements\.txt|icon\.ico$",exclude=r"pack\.py$")
 control_copy_folder_filter=string_utils.StringFilter(exclude=r"__pycache__|\.git|\.vscode|docs|launcher")
 def copy_control(dst):
@@ -57,9 +61,10 @@ def copy_control(dst):
         with open(os.path.join(dst_control,"settings.cfg"),"a") as f:
             f.write("\ninfo/version\t{}".format(version))
     for f in file_utils.list_dir(os.path.join(dst_control,"plugins"),file_filter=r".*\.py").files:
-        if f[:-3] not in include_plugins+["__init__","base"]:
+        if os.path.splitext(f)[0] not in include_plugins+["__init__","base"]:
             file_utils.retry_remove(os.path.join(dst_control,"plugins",f))
-    file_utils.retry_remove_dir(os.path.join(dst_control,"plugins","advanced"))
+    if not clargs.advanced_plugins:
+        file_utils.retry_remove_dir(os.path.join(dst_control,"plugins","advanced"))
 def copy_docs(dst):
     subprocess.call(["python.exe","make-sphinx.py","-c"],cwd="docs")
     file_utils.retry_copy_dir(os.path.join("docs","_build","html"),os.path.join(dst,"docs"))
@@ -81,6 +86,15 @@ def make_launcher(dst, recompile=True):
     file_utils.retry_copy(os.path.join("launcher","run-control-splash.exe"),os.path.join(dst,"control.exe"))
     file_utils.retry_copy(os.path.join("launcher","run-control.exe"),os.path.join(dst,"control-console.exe"))
     file_utils.retry_copy(os.path.join("launcher","run-detect.exe"),os.path.join(dst,"detect.exe"))
+def setup_repo(dst, message):
+    with open(os.path.join(control_folder,".gitignore"),"r") as fs, open(os.path.join(dst,".gitignore"),"w") as fd:
+        for ln in fs.readlines():
+            if ln.strip()!="plugins/advanced/":
+                fd.write(ln)
+    subprocess.call(["git","config","--global","core.safecrlf","false"])
+    subprocess.call(["git","init"],cwd=dst)
+    subprocess.call(["git","add","*"],cwd=dst)
+    subprocess.call(["git","commit","-m",message],cwd=dst)
 
 zip_name="cam-control{}.zip".format("-"+version if version else "")
 def zip_dst(dst, zip_name):
@@ -103,10 +117,14 @@ print("copying cam-control")
 copy_control(clargs.dst)
 print("preparing executable files")
 make_launcher(clargs.dst,recompile=not clargs.nocompile)
-print("copying docs")
-copy_docs(clargs.dst)
+if not clargs.nodocs:
+    print("copying docs")
+    copy_docs(clargs.dst)
 print("preparing batch files")
 make_bat(clargs.dst)
 if not clargs.noarchive:
     print("archiving folder to {}".format(zip_name))
     zip_dst(clargs.dst,zip_name)
+if clargs.git:
+    print("committing new changes")
+    setup_repo(os.path.join(clargs.dst,"cam-control"),"Setup repository")
