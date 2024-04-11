@@ -178,14 +178,18 @@ class CamAttributesBrowser(widgets.QWidgetContainer):
         if "camera_attributes_desc" in full_info:
             for n,a in full_info["camera_attributes_desc"].items(leafs=True,path_kind="joined"):
                 self._add_attribute(n,a,value=full_info.get(("camera_attributes",n),None))
+    def show_window(self):
+        """Show the attribute browser window"""
+        if not self.isVisible():
+            self.showNormal()
+        else:
+            self.show()
+        self.setMinimumHeight(300)
     def finalize_setup(self):
         """Finalize the setup: set up borders, sizes, etc."""
         self.params_table.pad_borders()
         self.props_table.pad_borders()
         self.tabs.setCurrentIndex(1)
-        self.show()
-        self.setMinimumHeight(300)
-        self.hide()
         self.tabs.setCurrentIndex(0)
         self.setup_visibility()
     def _get_attribute_range(self, attribute):

@@ -397,30 +397,27 @@ class AttributesBrowserGUIParameter(IGUIParameter):
         self.browser_class=browser_class
     def _show_window(self, visible=True):
         if visible:
-            if not self.window.isVisible():
-                self.window.showNormal()
-            else:
-                self.window.show()
+            self.attr_window.show_window()
         else:
-            self.window.hide()
+            self.attr_window.hide()
     def add(self, base):
         self.base=base
-        self.window=self.browser_class(self.base)
-        self.window.setup(self.settings.cam_ctl)
+        self.attr_window=self.browser_class(self.base)
+        self.attr_window.setup(self.settings.cam_ctl)
         self.base.add_button("show_attributes_window","Show attributes",add_indicator=False).get_value_changed_signal().connect(lambda: self._show_window())
-        self.base.add_child("attributes_window",self.window,location="skip",gui_values_path="attributes_window")
+        self.base.add_child("attributes_window",self.attr_window,location="skip",gui_values_path="attributes_window")
         self._connected=False
         self._startup_done=False
 
     def setup(self, parameters, full_info):
-        self.window.setup_parameters(full_info)
-        self.window.finalize_setup()
+        self.attr_window.setup_parameters(full_info)
+        self.attr_window.finalize_setup()
     def on_connection_changed(self, connected):
         self._connected=connected
         self._startup_done=False
     def display(self, parameters):
         if self._connected and not self._startup_done and parameters.get("tag/initialized",False):
-            self.window.setup_startup()
+            self.attr_window.setup_startup()
             self._startup_done=True
-        self.window.update_attributes()
+        self.attr_window.update_attributes()
         super().display(parameters)

@@ -569,6 +569,7 @@ class FrameSaveThread(controller.QTaskThread):
     def _finalize_saving(self):
         try:
             self._write_finish()
+            self._update_file_save()
             if self._event_log_started:
                 self.write_event_log("Recording stopped")
             self.finalize_settings()

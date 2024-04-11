@@ -197,8 +197,13 @@ class StandaloneFrame(container.QWidgetContainer):
             lambda: (self.size().width(),self.size().height()), lambda v: self.resize(*v), add_indicator=False)
         self.add_property_element("defaults/window/position",
             lambda: (self.geometry().x(),self.geometry().y()), lambda v: self.setGeometry(v[0],v[1],self.size().width(),self.size().height()), add_indicator=False)
+        self._maximized=False
+        def set_maximized(v):
+            if v and self.isVisible():
+                self.showMaximized()
+            self._maximized=v
         self.add_property_element("defaults/window/maximized",
-            lambda: self.windowState()==QtCore.Qt.WindowMaximized, lambda v: self.showMaximized() if v else None, add_indicator=False)
+            lambda: self.windowState()==QtCore.Qt.WindowMaximized, set_maximized, add_indicator=False)
         self.add_virtual_element("defaults/settings_folder",value="",add_indicator=False)
         self.tutorial_box=None
         self.settings_editor=None
@@ -270,6 +275,12 @@ class StandaloneFrame(container.QWidgetContainer):
         def keyPressEvent(self, event):
             dev_services.on_key_press(self,event)
             return super().keyPressEvent(event)
+    def show(self):
+        if self._maximized:
+            self._maximized=False
+            self.showMaximized()
+        else:
+            super().show()
             
     @controller.exsafeSlot()
     def on_load_settings_button(self):
@@ -476,8 +487,9 @@ class StandaloneFrame(container.QWidgetContainer):
     @controller.exsafeSlot()
     def start(self):
         self.plugin_manager.sync_plugins()
-        controller.sync_controller(cam_thread)
+        self.cam_ctl.sync_controller()
         self.load_settings(warn_if_missing=False)
+        self.cam_ctl.dev.cs.apply_parameters({})  # sync with the camera
         super().start()
         self.plugin_manager.unlock_barrier("plugin_start")
         if not self.locals.get("tutorial_shown",False):

@@ -79,9 +79,13 @@ class GenericCameraCtl(container.QContainer):
             saving_updater=status_updater({"in_progress":"on","stopping":"pause"})
             self.resource_manager.cs.add_multicast_updater("process_activity","saving/streaming",saving_updater,
                 srcs=self.save_thread,tags="status/saving")
+    def sync_controller(self):
+        """Synchronize the camera controller"""
+        if self.dev is None:
+            self.dev=controller.sync_controller(self.cam_thread)
     def start(self):
         """Start update timer"""
-        self.dev=controller.sync_controller(self.cam_thread)
+        self.sync_controller()
         self.setup_pretrigger()
         self.setup_gui_parameters()
         super().start()
