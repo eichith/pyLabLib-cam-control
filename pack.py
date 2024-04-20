@@ -28,11 +28,20 @@ control_folder=os.path.abspath(os.path.split(sys.argv[0])[0])
 pll_folder=os.path.abspath(module_utils.get_library_path())
 portable_folder=os.path.abspath(os.path.join(pll_folder,"..","tools","portable"))
 
-def prepare_dst(dst, force=False, full_force=False):
+def prepare_dst(dst, force=False, full_force=False, git=False):
     if full_force:
         file_utils.retry_clean_dir(dst)
     elif force:
-        file_utils.retry_clean_dir(os.path.join(dst,"cam-control"))
+        if not git:
+            file_utils.retry_clean_dir(os.path.join(dst,"cam-control"))
+        else:
+            clear_file_filter=string_utils.StringFilter(include=r".*\.py$")
+            clear_folder_filter=string_utils.StringFilter(exclude=r"\.git")
+            lst=file_utils.list_dir(os.path.join(dst,"cam-control"),folder_filter=clear_folder_filter,file_filter=clear_file_filter)
+            for f in lst.folders:
+                file_utils.retry_remove_dir(os.path.join(dst,"cam-control",f))
+            for f in lst.files:
+                file_utils.retry_remove(os.path.join(dst,"cam-control",f))
         file_utils.retry_clean_dir(os.path.join(dst,"docs"))
     elif os.path.exists(dst):
         print("destination path {} already exists; aborting".format(dst))
@@ -55,8 +64,8 @@ control_copy_file_filter=string_utils.StringFilter(include=r".*\.py|detect-log-e
 control_copy_folder_filter=string_utils.StringFilter(exclude=r"__pycache__|\.git|\.vscode|docs|launcher")
 def copy_control(dst):
     dst_control=os.path.join(dst,"cam-control")
-    file_utils.retry_copy_dir(control_folder,dst_control,folder_filter=control_copy_folder_filter,file_filter=control_copy_file_filter)
-    file_utils.retry_copy(os.path.join(control_folder,"settings_deploy.cfg"),os.path.join(dst_control,"settings.cfg"))
+    file_utils.retry_copy_dir(control_folder,dst_control,folder_filter=control_copy_folder_filter,file_filter=control_copy_file_filter,overwrite=False)
+    file_utils.retry_copy(os.path.join(control_folder,"settings_deploy.cfg"),os.path.join(dst_control,"settings.cfg"),overwrite=False)
     if version:
         with open(os.path.join(dst_control,"settings.cfg"),"a") as f:
             f.write("\ninfo/version\t{}".format(version))
@@ -107,8 +116,11 @@ def zip_dst(dst, zip_name):
     for f in files:
         file_utils.zip_file(zip_path,os.path.join(dst,f),inside_name=os.path.join("cam-control",f))
 
+if clargs.git and clargs.force and os.path.exists(clargs.dst):
+    print("committing existing changes")
+    setup_repo(os.path.join(clargs.dst,"cam-control"),"Pre-update changes")
 print("preparing destination path {}".format(clargs.dst))
-prepare_dst(clargs.dst,force=clargs.force,full_force=clargs.full_force)
+prepare_dst(clargs.dst,force=clargs.force,full_force=clargs.full_force,git=clargs.git)
 print("copying interpreter")
 copy_interpreter(clargs.dst,interpreter=clargs.interpreter)
 print("copying pylablib")
@@ -127,4 +139,4 @@ if not clargs.noarchive:
     zip_dst(clargs.dst,zip_name)
 if clargs.git:
     print("committing new changes")
-    setup_repo(os.path.join(clargs.dst,"cam-control"),"Setup repository")
+    setup_repo(os.path.join(clargs.dst,"cam-control"),"Update repository")
