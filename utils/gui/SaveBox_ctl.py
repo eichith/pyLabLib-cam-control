@@ -144,7 +144,7 @@ class SaveBox_GUI(container.QGroupBoxContainer):
         self.params.vs["browse"].connect(browse_path)
         with self.params.using_new_sublayout("path_checkboxes","hbox"):
             self.params.add_check_box("make_folder",caption="Separate folder")
-            self.params.add_padding()
+            self.params.add_padding(tag="parameter.path_checkboxes")
             self.params.add_check_box("add_datetime",caption="Add date/time")
         with self.params.using_new_sublayout("name_conflict","hbox",location=("next",0,1,3)):
             self.params.add_combo_box("on_name_conflict",label="On duplicate name: ",
@@ -196,8 +196,8 @@ class SaveBox_GUI(container.QGroupBoxContainer):
         self.params.add_child("message_log_window",self.message_log_window,gui_values_path="message_log_window",location="skip")
         self.params.add_spacer(5)
         with self.params.using_new_sublayout("snap_header","hbox"):
-            self.params.add_decoration_label("Snapshot:")
-            self.params.add_padding()
+            self.params.add_decoration_label("Snapshot:",tag="parameter.snapshot")
+            self.params.add_padding(tag="parameter.snapshot")
             self.params.add_check_box("default_snap_path","Use main path")
         with self.params.using_new_sublayout("snap_save_path","hbox"):
             self.params.add_text_edit("snap_path",label="Path",value=default_path,location=("next",0,1,3))
@@ -233,8 +233,8 @@ class SaveBox_GUI(container.QGroupBoxContainer):
             self.params.add_combo_box("snap_display_source",options=[])
             self.update_display_source_options(reset_value=True)
             self.cam_ctl.frames_sources_updates.connect(self.update_display_source_options)
-            self.params.add_padding()
-            self.params.add_decoration_label("as")
+            self.params.add_padding(tag="parameter.snap_format")
+            self.params.add_decoration_label("as",tag="parameter.snap_format")
             self.params.add_combo_box("snap_format",options=["Raw binary","TIFF"],index_values=["raw","tiff"],value="tiff")
         if self.expandable_edits:
             borders=(250,50) if self.compact_interface else (200,200)

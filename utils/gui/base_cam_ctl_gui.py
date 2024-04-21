@@ -199,7 +199,7 @@ class GenericCameraStatus_GUI(param_table.StatusTable):
             self.add_padding("horizontal",location=(0,"next"),stretch=1)
         if self.cam_desc is not None:
             self.v["cam_kind"],self.v["cam_name"]=self.cam_desc.get_camera_labels()
-        self.add_spacer(5)
+        self.add_spacer(5,tag="parameter.header")
         def set_connection_style(v):
             self.w["connection"].setStyleSheet("background: gold; font-weight: bold; color: black" if v=="Disconnected" else "")
         self.add_status_line("connection",label="Connection:",srcs=self.cam_ctl.cam_thread,tags="status/connection_text")
