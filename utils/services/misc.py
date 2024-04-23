@@ -19,9 +19,9 @@ class SettingsManager(controller.QTaskThread):
         self.add_command("update_settings")
         self.add_command("get_all_settings")
 
-    def add_source(self, name, func):
+    def add_source(self, name, func, async_result=False):
         """Add settings source as a function (called when settings values are requested)"""
-        self.sources[name]=func
+        self.sources[name]=(func,async_result)
     def update_settings(self, name, settings):
         """Add settings values directly"""
         self.settings[name]=settings
@@ -36,15 +36,54 @@ class SettingsManager(controller.QTaskThread):
         """
         settings=dictionary.Dictionary()
         alias=alias or {}
-        for s in self.sources:
+        acquired_settings=[]
+        for s,(func,asr) in self.sources.items():
             if ((include is None) or (s in include)) and ((exclude is None) or (s not in exclude)):
-                sett=self.sources[s]()
-                settings.update({alias.get(s,s):sett})
+                acquired_settings.append((s,func(),asr))
+        acquired_settings=[(s,(sett.get_value_sync() if asr else sett)) for s,sett,asr in acquired_settings]
+        for s,sett in acquired_settings:
+            settings.update({alias.get(s,s):sett})
         for s in self.settings:
             if ((include is None) or (s in include)) and ((exclude is None) or (s not in exclude)) and (s not in settings):
                 sett=self.settings[s]
                 settings.update({alias.get(s,s):sett})
         return settings
+
+
+class EventHooksManager(controller.QTaskThread):
+    """
+    Event hooks manager.
+    
+    Keeps track of all the event hooks and calls them on request.
+    """
+    def setup_task(self):
+        self.hooks={}
+        self._hook_lock=threading.RLock()
+        self.add_direct_call_command("add_hook")
+        self.add_direct_call_command("remove_hook")
+        self.add_direct_call_command("call_hook")
+
+    def add_hook(self, evt, name, func, priority=0):
+        """
+        Add a hook function for the given event.
+        
+        `priority` can specify the call priority (higher is called first).
+        """
+        with self._hook_lock:
+            self.hooks.setdefault(evt,{})[name]=(priority,func)
+    def remove_hook(self, evt, name):
+        """Remove a hook function for the given event."""
+        with self._hook_lock:
+            calls=self.hooks.get(evt,{})
+            if name in calls:
+                del calls[name]
+    def call_hook(self, evt, *args, **kwargs):
+        """Call hook function for the given event with the given arguments"""
+        with self._hook_lock:
+            calls=self.hooks.setdefault(evt,{}).copy()
+        calls=[f for _,f in sorted(calls.values(),key=(lambda v:v[0]),reverse=True)]
+        for c in calls:
+            c(*args,**kwargs)
 
 
 

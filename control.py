@@ -40,7 +40,6 @@ except KeyError:
 
 import argparse
 import datetime
-import collections
 import threading
 import subprocess
 import traceback
@@ -89,11 +88,13 @@ channel_accumulator_thread="channel_accumulator"
 save_thread="frame_save"
 snap_save_thread="frame_save_snap"
 settings_manager_thread="settings_manager"
+event_hooks_manager_thread="event_hooks_manager"
 resource_manager_thread="resource_manager"
 garbage_collector_thread="garbage_collector"
 
 _ext_controller_names={"camera":cam_thread,"processor":process_thread,"preprocessor":preprocess_thread,"saver":save_thread,"snap_saver":snap_save_thread,
-    "slowdown":slowdown_thread,"channel_accumulator":channel_accumulator_thread,"settings_manager":settings_manager_thread,"resource_manager":resource_manager_thread}
+    "slowdown":slowdown_thread,"channel_accumulator":channel_accumulator_thread,
+    "settings_manager":settings_manager_thread,"event_hooks_manager":event_hooks_manager_thread,"resource_manager":resource_manager_thread}
 
 ### Main window ###
 class StandaloneFrame(container.QWidgetContainer):
@@ -221,6 +222,8 @@ class StandaloneFrame(container.QWidgetContainer):
         settings_ctl=controller.sync_controller(settings_manager_thread)
         settings_ctl.ca.add_source("gui",controller.call_in_gui_thread(lambda: self.get_all_values(full_status=True)))
         settings_ctl.ca.update_settings("cfg",settings.copy())
+        # Setup event hooks manager
+        self.event_hooks_ctl=controller.sync_controller(event_hooks_manager_thread)
         # Setup thread methods and signals
         self.ctl.finished.connect(self.stop)
         self.ctl.add_thread_method("get_all_values",self.get_all_values)
@@ -463,9 +466,11 @@ class StandaloneFrame(container.QWidgetContainer):
                 del settings["cam/cam"]
             if scope=="camera":
                 settings=dictionary.Dictionary({"cam/cam":settings.get("cam/cam",{})})
+            self.event_hooks_ctl.cs.call_hook("gui/settings/set/pre_set",settings=settings)
             self.set_all_values(settings)
             if cam_apply and scope in {"all","camera"}:
                 self.cam_ctl.send_parameters()
+            self.event_hooks_ctl.cs.call_hook("gui/settings/set/post_set",settings=settings)
             return True
         return False
     def load_locals(self):
@@ -482,13 +487,17 @@ class StandaloneFrame(container.QWidgetContainer):
             settings=dictionary.Dictionary()
         if self.cam_name in settings:
             del settings[self.cam_name]
-        settings[self.cam_name]=self.get_all_values()
+        self.event_hooks_ctl.cs.call_hook("gui/settings/get/pre_get")
+        save_settings=self.get_all_values()
+        self.event_hooks_ctl.cs.call_hook("gui/settings/get/post_get",settings=save_settings)
+        settings[self.cam_name]=save_settings
         savefile.save_dict(settings,path)
+        self.event_hooks_ctl.cs.call_hook("gui/settings/get/post_save",settings=settings)
     @controller.exsafeSlot()
     def start(self):
         self.plugin_manager.sync_plugins()
         self.cam_ctl.sync_controller()
-        self.load_settings(warn_if_missing=False)
+        self.load_settings(path=self.settings.get("interface/defaults_path"),warn_if_missing=False)
         self.cam_ctl.dev.cs.apply_parameters({})  # sync with the camera
         super().start()
         self.plugin_manager.unlock_barrier("plugin_start")
@@ -497,7 +506,7 @@ class StandaloneFrame(container.QWidgetContainer):
     @controller.toploopSlot()
     def stop(self):
         if self._running:
-            self.save_settings()
+            self.save_settings(path=self.settings.get("interface/defaults_path"))
             self.save_locals()
         for plugin in self.plugin_manager.get_running_plugins().values():
             plugin.ctl.stop(sync=True)
@@ -626,6 +635,7 @@ error_display=ErrorBoxDisplay()
 parser=argparse.ArgumentParser(description="Pylablib cam-control software for controlling all connected cameras")
 parser.add_argument("--camera","-c", help="controlled camera name",metavar="CAM_NAME")
 parser.add_argument("--config-file","-cf", help="configuration file path",metavar="FILE",default="settings.cfg")
+parser.add_argument("--subconfig","-sc", help="subconfiguration name",metavar="SC_NAME")
 argvp=parser.parse_args()
 
 
@@ -654,6 +664,7 @@ def start_threads(settings, cam_desc):
         "settings_mgr":settings_manager_thread,"frame_processor":process_thread,"garbage_collector":garbage_collector_thread}).start()
     services.FrameSaveThread(snap_save_thread,kwargs={"src":"any","tag":"frames/new/snap","settings_mgr":settings_manager_thread}).start()
     services.SettingsManager(settings_manager_thread).start()
+    services.EventHooksManager(event_hooks_manager_thread).start()
     services.ResourceManager(resource_manager_thread).start()
     allow_garbage_collection=control_settings.get("gc/enabled",True)
     garbage_collection_periods=control_settings.get("gc/periods",{"default":10,"saving":60})
@@ -702,6 +713,8 @@ def start_app(ask_on_no_cam=True):
             raise ValueError("unavailable camera {}".format(cam_name))
         if ("css",cam_name) in settings:
             settings.update(settings["css",cam_name])
+        if argvp.subconfig is not None and ("scs",argvp.subconfig) in settings:
+            settings.update(settings["scs",argvp.subconfig])
         app.setStyleSheet(color_theme.load_style(settings.get("interface/color_theme","dark")))
 
         cam_desc_class=camera_descriptors[settings["cameras",cam_name,"kind"]]
@@ -716,8 +729,8 @@ def start_app(ask_on_no_cam=True):
         main_form.setup(settings=settings,cam_name=cam_name,cam_desc=cam_desc,plugin_manager=plugin_manager)
         settings_ctl=controller.sync_controller(settings_manager_thread)
         settings_ctl.ca.update_settings("software/version",version)
-        settings_ctl.ca.add_source("cam",cam_ctl.cs.get_full_info)
-        settings_ctl.ca.add_source("cam/settings",cam_ctl.cs.get_settings)
+        settings_ctl.ca.add_source("cam",cam_ctl.cad.get_full_info,async_result=True)
+        settings_ctl.ca.add_source("cam/settings",cam_ctl.cad.get_settings,async_result=True)
         def get_cam_counters():
             counters=cam_ctl.v["frames"]
             if "last_frame" in counters:
