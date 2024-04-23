@@ -1,6 +1,6 @@
 from . import base
 from pylablib.core.thread import controller
-# from pylablib.devices import NI, Conrad
+from pylablib import widgets
 
 import numpy as np
 import time
@@ -19,8 +19,10 @@ class TriggerSavePlugin(base.IPlugin):
         self._trigger_display_time=0.5
         self.trig_modes=["timer","image"]
         self._frame_sources={}
+        caption=self.parameters.get("caption","Save trigger")
+        short_cap=self.parameters.get("indicator_caption","Trg")
         self.extctls["resource_manager"].cs.add_resource("process_activity","saving/"+self.full_name,ctl=self.ctl,
-            caption="Trigger save",short_cap="Trg",order=10)
+            caption=caption,short_cap=short_cap,order=10)
         self.setup_gui_sync()
         self.ctl.subscribe_commsync(lambda *args: self._update_frame_sources(),
             srcs=self.extctls["resource_manager"].name,tags=["resource/added","resource/removed"])
@@ -32,7 +34,16 @@ class TriggerSavePlugin(base.IPlugin):
         self.ctl.v["timer_trigger/time_left"]=None
     
     def setup_gui(self):
-        self.table=self.gui.add_plugin_box("params","Save trigger",cache_values=True)
+        location=self.parameters.get("location","plugin_tab")
+        caption=self.parameters.get("caption","Save trigger")
+        if location=="plugin_tab":
+            self.table=self.gui.add_plugin_box("params",caption,cache_values=True)
+        elif location=="own_tab":
+            self.table=self.gui.add_control_tab("params",caption,cache_values=True)
+        elif location=="savebox":
+            savebox=self.gui.main_frame.c["cam_controller/savebox"]
+            savebox.add_spacer(5)
+            self.table=self.gui.add_plugin_box("params",caption,cache_values=True,parent=savebox,index="next")
         self.table.add_combo_box("save_mode",options={"full":"Full","snap":"Snap"},label="Save mode")
         self.table.add_check_box("limit_videos",caption="Limit number of videos",value=False)
         self.table.add_num_edit("max_videos",1,limiter=(1,None,"coerce","int"),formatter="int",label="Number of videos",add_indicator=True)
@@ -42,7 +53,7 @@ class TriggerSavePlugin(base.IPlugin):
         self.table.add_combo_box("frame_source",options=[],label="Trigger frame source")
         self.table.add_num_edit("image_trigger_threshold",0,formatter=("float","auto",4),label="Trigger threshold")
         self.table.add_num_edit("dead_time",10,limiter=(0,None,"coerce"),formatter=("float","auto",1),label="Dead time (s)")
-        self.table.add_text_label("event_trigger_status","armed",label="Event trigger status: ")
+        self.table.add_text_label("status","armed",label="Status: ")
         self.table.add_toggle_button("enabled","Enabled",value=False)
         self.table.vs["limit_videos"].connect(lambda v: self.table.set_enabled("max_videos",v))
         self.table.set_enabled("max_videos",False)
@@ -111,20 +122,22 @@ class TriggerSavePlugin(base.IPlugin):
                 tleft=0
             self.ctl.v["timer_trigger"]={"time_left":tleft,"period":period}
             if tleft>0:
-                self._update_trigger_status("armed, {:.0f}s / {:.0f}s left".format(tleft,period))
+                self._update_trigger_status("ready, {:.0f}s / {:.0f}s left".format(tleft,period))
+            elif saving:
+                self._update_trigger_status("recording")
             else:
-                self._update_trigger_status("armed")
+                self._update_trigger_status("ready")
         else:
             if self.table.v["trigger_mode"]=="timer":
-                self._update_trigger_status("armed")
+                self._update_trigger_status("ready")
             self._last_save_timer=None
             self.ctl.v["timer_trigger"]={"time_left":None,"period":period}
         self.extctls["resource_manager"].csi.update_resource("process_activity","saving/"+self.full_name,status="on" if enabled else "off")
         if self._last_video and not self._saving_in_progress():
             self.toggle(enable=False)
     def _update_trigger_status(self, status):
-        if self.table.v["event_trigger_status"]!=status: # check (cached) value first to avoid unnecessary calls to GUI thread
-            self.table.v["event_trigger_status"]=status
+        if self.table.v["status"]!=status: # check (cached) value first to avoid unnecessary calls to GUI thread
+            self.table.v["status"]=status
     def check_frame_trigger(self, src, frame):
         """Check incoming image and start saving if it's passed"""
         dead_time=self.table.v["dead_time"] if self.table.v["enabled"] else 0
@@ -141,7 +154,7 @@ class TriggerSavePlugin(base.IPlugin):
                 elif self._last_save_image is not None and t<self._last_save_image+dead_time:
                     self._update_trigger_status("dead time")
                 else:
-                    self._update_trigger_status("armed")
+                    self._update_trigger_status("ready")
         else:
             self._last_save_image=None
     

@@ -233,7 +233,7 @@ class PluginGUIManager(container.QContainer):
             kwargs: keyword arguments passed to the widget ``setup`` method when the new tab is a parameter table or a plotter
         """
         return self._add_tab(self.plot_tabs,name,caption,kind=kind,index=index,layout=layout,add_as_child=add_as_child,**kwargs)
-    def add_plugin_box(self, name, caption, kind="params", layout="vbox", index=None, add_as_child=True, **kwargs):
+    def add_plugin_box(self, name, caption, kind="params", layout="vbox", index=None, add_as_child=True, parent=None, **kwargs):
         """
         Add a new box to the plugins tab.
 
@@ -245,7 +245,7 @@ class PluginGUIManager(container.QContainer):
             layout: if `kind` is ``"empty"``, specifies the layout of the new tab
             kwargs: keyword arguments passed to the widget ``setup`` method when ``kind=="params"``
         """
-        return self._add_box(self.plugin_tab,name,caption,kind=kind,layout=layout,index=index,add_as_child=add_as_child,**kwargs)
+        return self._add_box(parent or self.plugin_tab,name,caption,kind=kind,layout=layout,index=index,add_as_child=add_as_child,**kwargs)
 
 
 
