@@ -7,6 +7,7 @@ import re
 import subprocess
 import distutils.ccompiler
 
+sys.path.append(".")
 from utils import version
 
 
@@ -96,6 +97,8 @@ def make_launcher(dst, recompile=True):
     file_utils.retry_copy(os.path.join("launcher","run-control.exe"),os.path.join(dst,"control-console.exe"))
     file_utils.retry_copy(os.path.join("launcher","run-detect.exe"),os.path.join(dst,"detect.exe"))
 def setup_repo(dst, message):
+    if not os.path.exists(dst):
+        return
     with open(os.path.join(control_folder,".gitignore"),"r") as fs, open(os.path.join(dst,".gitignore"),"w") as fd:
         for ln in fs.readlines():
             if ln.strip()!="plugins/advanced/":

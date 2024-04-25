@@ -378,7 +378,7 @@ class SaveStatus_GUI(param_table.StatusTable):
         self.cam_ctl=ctl
         if self.cam_ctl.save_thread:
             self._finishing_saving_time=general.Countdown(0.5,start=False)
-            self.add_status_line("saving",label="Saving:",srcs=self.cam_ctl.save_thread,tags="status/saving_text")
+            self.add_status_line("saving",label="Saving status:",srcs=self.cam_ctl.save_thread,tags="status/saving_text")
             self.update_status_line("saving")
             def error_fmt(src, tag, val):
                 self.w["issues"].setStyleSheet("color: red; font-weight: bold" if val[0]!="none" else "")
