@@ -2,15 +2,37 @@ from pylablib.devices import Thorlabs
 from pylablib.thread.devices.Thorlabs import ThorlabsTLCameraThread
 
 from .base import ICameraDescriptor
+from ..gui import cam_gui_parameters
 from ..gui.base_cam_ctl_gui import GenericCameraSettings_GUI, GenericCameraStatus_GUI
 
 
 
 
 
+class GainParameter(cam_gui_parameters.FloatGUIParameter):
+    """
+    ThorlabsTLCam gain parameter.
+    
+    Receives values range from the camera.
+    """
+    def __init__(self, settings):
+        super().__init__(settings,"gain","Gain (dB)")
+    def setup(self, parameters, full_info):
+        super().setup(parameters,full_info)
+        if "gain_range" in full_info:
+            rng=full_info["gain_range"]
+            self.base.w[self.gui_name].set_limiter(rng)
+
+
 class Settings_GUI(GenericCameraSettings_GUI):
     _bin_kind="both"
     _frame_period_kind="value"
+    def get_basic_parameters(self, name):
+        if name=="gain": return GainParameter(self)
+        return super().get_basic_parameters(name)
+    def setup_settings_tables(self):
+        super().setup_settings_tables()
+        self.add_builtin_parameter("gain","advanced")
 
 
 
