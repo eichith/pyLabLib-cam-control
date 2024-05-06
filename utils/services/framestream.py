@@ -954,6 +954,7 @@ class FrameSaveThread(controller.QTaskThread):
         if self._saving:
             self._finalize_saving()
             self.update_status("saving","stopped",text="Saving done")
+        self.update_status("saving","starting",text="Saving in progress")
         self.v["path"]=path
         funcargparse.check_parameter_range(path_kind,"path_kind",["pfx","folder"])
         self.v["path_kind"]=path_kind

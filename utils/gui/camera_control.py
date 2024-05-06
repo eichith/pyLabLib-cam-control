@@ -76,7 +76,7 @@ class GenericCameraCtl(container.QContainer):
             srcs=self.cam_thread,tags="status/acquisition")
         if self.save_thread:
             self.resource_manager.cs.add_resource("process_activity","saving/streaming",caption="Saving",short_cap="Sav",order=1)
-            saving_updater=status_updater({"in_progress":"on","stopping":"pause"})
+            saving_updater=status_updater({"in_progress":"on","stopping":"pause","starting":"pause"})
             self.resource_manager.cs.add_multicast_updater("process_activity","saving/streaming",saving_updater,
                 srcs=self.save_thread,tags="status/saving")
     def sync_controller(self):
@@ -150,7 +150,7 @@ class GenericCameraCtl(container.QContainer):
         """Check if saving is in progress"""
         if self.saver is not None:
             status=self.saver.v["status/saving"]
-            if status in {"in_progress","stopping"}:
+            if status in {"starting","in_progress","stopping"}:
                 return status
         return False
     frames_sources_updates=Signal()
