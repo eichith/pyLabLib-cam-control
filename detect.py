@@ -39,7 +39,7 @@ import time
 import threading
 import datetime
 
-from utils.cameras import camera_descriptors
+from utils.cameras.loader import camera_descriptors
 
 ### Redirecting console / errors to file logs ###
 log_lock=threading.RLock()

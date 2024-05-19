@@ -55,7 +55,7 @@ from utils.gui import DisplaySettings_ctl, FramePreprocess_ctl, FrameProcess_ctl
 from utils.gui import tutorial, color_theme, settings_editor, about, error_message
 from utils import services
 from utils.services import dev as dev_services
-from utils.cameras import camera_descriptors
+from utils.cameras.loader import camera_descriptors
 import plugins
 import splash
 

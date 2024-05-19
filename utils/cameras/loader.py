@@ -20,8 +20,12 @@ def find_camera_descriptors():
                 mod=importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(mod)
                 sys.modules[module_name]=mod
+    for module_name in sys.modules:
+        if module_name.startswith(root_module_name+"."):
             mod=sys.modules[module_name]
             for v in mod.__dict__.values():
                 if isinstance(v,type) and issubclass(v,ICameraDescriptor) and v is not ICameraDescriptor and v._cam_kind is not None:
                     cam_classes[v._cam_kind]=v
     return cam_classes
+
+camera_descriptors=find_camera_descriptors()

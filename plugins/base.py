@@ -516,6 +516,7 @@ class PluginManager:
 
 
 
+root_module_name=__name__.rsplit(".",maxsplit=1)[0]
 def find_plugins(folder, root=""):
     """
     Find all plugin classes in all files contained in the given folder.
@@ -532,8 +533,10 @@ def find_plugins(folder, root=""):
             mod=importlib.util.module_from_spec(spec)
             spec.loader.exec_module(mod)
             sys.modules[module_name]=mod
-        mod=sys.modules[module_name]
-        for v in mod.__dict__.values():
-            if isinstance(v,type) and issubclass(v,IPlugin) and v is not IPlugin:
-                plugins.append(v)
+    for module_name in sys.modules:
+        if module_name.startswith(root_module_name+"."):
+            mod=sys.modules[module_name]
+            for v in mod.__dict__.values():
+                if isinstance(v,type) and issubclass(v,IPlugin) and v is not IPlugin:
+                    plugins.append(v)
     return plugins
