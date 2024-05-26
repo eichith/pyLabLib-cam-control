@@ -22,7 +22,7 @@ class GenericCameraCtl(container.QContainer):
     
     In addition, widget classes can connect controller methods to some of the GUI events (usually, button clicks).
     """
-    def __init__(self, cam_thread="camera", frame_src_thread=None, save_thread=None, snap_save_thread=None, resource_manager_thread=None, frame_tag="frames/new", cam_name=None, settings=None):
+    def __init__(self, cam_thread="camera", frame_src_thread=None, save_thread=None, snap_save_thread=None, resource_manager_thread=None, event_hooks_thread=None, frame_tag="frames/new", cam_name=None, settings=None):
         super().__init__()
         self.cam_thread=cam_thread
         self.dev=None
@@ -30,6 +30,7 @@ class GenericCameraCtl(container.QContainer):
         self.snap_save_thread=snap_save_thread
         self.resource_manager_thread=resource_manager_thread
         self.frame_src_thread=frame_src_thread or cam_thread
+        self.event_hooks_thread=event_hooks_thread
         self.cam_name=cam_name
         self.settings=settings or {}
         self.frame_tag=frame_tag
@@ -112,6 +113,10 @@ class GenericCameraCtl(container.QContainer):
         """Stop acquisition (connected to a button in camera control)"""
         if self.dev is not None:
             self.dev.ca.acq_stop()
+    def _call_event_hook(self, evt, *args, **kwargs):
+        if self.event_hooks_thread is None:
+            return None
+        return controller.sync_controller(self.event_hooks_thread).cs.call_hook(evt,*args,**kwargs)
     @controller.exsafe
     def toggle_saving(self, mode, start=True, source=None, change_params=None, no_popup=False):
         """
@@ -133,18 +138,22 @@ class GenericCameraCtl(container.QContainer):
                 if start:
                     if "settings" in self.c:
                         perform_status_check=self.c["settings"].collect_parameters().get("perform_status_check",False)
-                    self.saver.csi.save_start(params["path"],path_kind=params["path_kind"],batch_size=params["batch_size"],
-                        append=params["append"],format=params["format"],format_parameters=params.get("format_parameters"),filesplit=params["filesplit"],
-                        save_settings=params["save_settings"],perform_status_check=perform_status_check)
+                    if self.event_hooks_thread is None or all(self._call_event_hook("gui/saving/full/start",params=params)):
+                        self.saver.csi.save_start(params["path"],path_kind=params["path_kind"],batch_size=params["batch_size"],
+                            append=params["append"],format=params["format"],format_parameters=params.get("format_parameters"),filesplit=params["filesplit"],
+                            save_settings=params["save_settings"],perform_status_check=perform_status_check)
                 else:
                     self.saver.ca.save_stop()
+                    self._call_event_hook("gui/saving/full/stop")
             else:
                 if start:
-                    self.snap_saver.csi.save_start(params["path"],path_kind=params["path_kind"],batch_size=1,append=False,
-                        format=params["format"],save_settings=params["save_settings"])
-                    self.send_snap_frame(source=source or params["snap_display_source"])
+                    if self.event_hooks_thread is None or all(self._call_event_hook("gui/saving/snap/start",params=params)):
+                        self.snap_saver.csi.save_start(params["path"],path_kind=params["path_kind"],batch_size=1,append=False,
+                            format=params["format"],save_settings=params["save_settings"])
+                        self.send_snap_frame(source=source or params["snap_display_source"])
                 else:
                     self.snap_saver.ca.save_stop()
+                    self._call_event_hook("gui/saving/snap/stop")
             self.update_parameters(update={"status/saving":"in_progress"} if (start and mode=="full") else None)
     def saving_in_progress(self):
         """Check if saving is in progress"""

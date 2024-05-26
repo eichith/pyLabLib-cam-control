@@ -82,8 +82,7 @@ class EventHooksManager(controller.QTaskThread):
         with self._hook_lock:
             calls=self.hooks.setdefault(evt,{}).copy()
         calls=[f for _,f in sorted(calls.values(),key=(lambda v:v[0]),reverse=True)]
-        for c in calls:
-            c(*args,**kwargs)
+        return [c(*args,**kwargs) for c in calls]
 
 
 
