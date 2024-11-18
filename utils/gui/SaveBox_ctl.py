@@ -14,7 +14,7 @@ class MessageLogWindow(container.QWidgetContainer):
     def setup(self, cam_ctl):
         super().setup()
         self.cam_ctl=cam_ctl
-        self.setWindowTitle("Record events")
+        self.setWindowTitle("Document events")
         self.setWindowFlag(QtCore.Qt.Dialog)
         self.setWindowFlag(QtCore.Qt.WindowMaximizeButtonHint,False)
         self.setWindowFlag(QtCore.Qt.WindowMinimizeButtonHint,False)
@@ -187,7 +187,7 @@ class SaveBox_GUI(container.QGroupBoxContainer):
         self.params.vs["saving"].connect(lambda v: self.cam_ctl.toggle_saving(mode="full",start=v))
         self.message_log_window=MessageLogWindow(self)
         self.message_log_window.setup(self.cam_ctl)
-        self.params.add_button("show_log_window","Record events...",location=("next",0,1,2))
+        self.params.add_button("show_log_window","Document events...",location=("next",0,1,2))
         @controller.exsafe
         def show_message_log():
             self.message_log_window.move(gui_utils.get_top_parent(self).rect().center()-self.message_log_window.rect().center())
