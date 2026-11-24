@@ -1,5 +1,8 @@
 from pylablib.devices import PCO
 from pylablib.thread.devices.PCO import PCOSC2CameraThread
+from pylablib.devices.PCO.SC2 import PCOSC2Camera
+from pylablib.devices.PCO.sc2_camexport_lib import wlib as pco_lib, sc2_defs
+from pylablib.core.devio import interface
 
 from .base import ICameraDescriptor
 from ..gui import cam_gui_parameters
@@ -11,6 +14,13 @@ from ..gui.base_cam_ctl_gui import GenericCameraSettings_GUI, GenericCameraStatu
 
 
 class BasicPCOSC2CameraThread(PCOSC2CameraThread):
+    parameter_variables = PCOSC2CameraThread.parameter_variables | {"acquire_mode"}
+    
+    def connect_device(self) -> None:
+        with self.using_devclass("PCO.PCOSC2Camera", host=self.remote):  # kept for its error handling
+            self.device = AcqModePCOSC2Camera(idx=self.idx, cam_interface=self.cam_interface,
+                                              reboot_on_fail=self.reboot_on_fail)
+    
     def setup_open_device(self):
         super().setup_open_device()
         self.device.set_status_line_mode(True,False)
@@ -35,11 +45,22 @@ class FastScanBoolGUIParameter(cam_gui_parameters.BoolGUIParameter):
 class Settings_GUI(GenericCameraSettings_GUI):
     _bin_kind="both"
     _frame_period_kind="value"
-    def setup_settings_tables(self):
-        super().setup_settings_tables()
-        self.add_parameter(FastScanBoolGUIParameter(self),"advanced")
-        perform_status_check=cam_gui_parameters.BoolGUIParameter(self,"perform_status_check","Perform status line check",default=True,add_indicator=False,indirect=True)
-        self.add_parameter(perform_status_check,"advanced").allow_diff_update=True
+    _acquire_modes = {"auto": "Auto", "ext": "External (acq. enable)"}
+    
+    def setup_settings_tables(self) -> None:
+        # explicit order instead of super() so acquire_mode sits directly below trigger_mode
+        self.add_builtin_parameter("exposure", "common")
+        self.add_builtin_parameter("frame_period", "common")
+        self.add_builtin_parameter("roi", "common")
+        self.add_builtin_parameter("trigger_mode", "advanced")
+        self.add_parameter(cam_gui_parameters.EnumGUIParameter(
+            self, "acquire_mode", "Acquire mode", self._acquire_modes), "advanced")
+        self.add_builtin_parameter("add_info", "advanced")
+        self.add_parameter(FastScanBoolGUIParameter(self), "advanced")
+        perform_status_check = cam_gui_parameters.BoolGUIParameter(
+            self, "perform_status_check", "Perform status line check",
+            default=True, add_indicator=False, indirect=True)
+        self.add_parameter(perform_status_check, "advanced").allow_diff_update = True
 
 class Status_GUI(GenericCameraStatus_GUI):
     def setup_status_table(self):
@@ -52,6 +73,28 @@ class Status_GUI(GenericCameraStatus_GUI):
             self.v["buffer_overruns"]=str(buffer_overruns) if buffer_overruns is not None else "N/A"
             self.w["buffer_overruns"].setStyleSheet("font-weight: bold" if buffer_overruns else "")
 
+
+class AcqModePCOSC2Camera(PCOSC2Camera):
+    """PCOSC2Camera with acquire mode support (PCO_Get/SetAcquireMode)"""
+    _acquire_mode = {"auto": sc2_defs.ACQUIRE_MODE.ACQUIRE_MODE_AUTO,
+                     "ext": sc2_defs.ACQUIRE_MODE.ACQUIRE_MODE_EXTERNAL}
+    _p_acquire_mode = interface.EnumParameterClass("acquire_mode", _acquire_mode)
+
+    def __init__(self, idx: int = 0, cam_interface=None, reboot_on_fail: bool = True) -> None:
+        super().__init__(idx=idx, cam_interface=cam_interface, reboot_on_fail=reboot_on_fail)
+        self._add_settings_variable("acquire_mode", self.get_acquire_mode, self.set_acquire_mode)
+
+    @interface.use_parameters(_returns="acquire_mode")
+    def get_acquire_mode(self):
+        """Get acquire mode: "auto" or "ext" (acquire enable input gates recording)"""
+        return pco_lib.PCO_GetAcquireMode(self.handle)
+
+    @interface.use_parameters(mode="acquire_mode")
+    def set_acquire_mode(self, mode):
+        """Set acquire mode; camera is re-armed (same pattern as set_trigger_mode)"""
+        pco_lib.PCO_SetAcquireMode(self.handle, mode)
+        self._arm()
+        return self.get_acquire_mode()
 
 
 class PCOCameraDescriptor(ICameraDescriptor):
